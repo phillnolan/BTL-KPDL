@@ -1,69 +1,110 @@
-# SPEC 2 - Kế hoạch triển khai phân cụm và khai phá luật trên WEKA
+# SPEC 2 - Thực hành phân cụm và khai phá luật trên WEKA 3.8.7 với K=5
 
 ## 1. Mục tiêu
 
-Tài liệu này mô tả kế hoạch dùng WEKA cho giai đoạn sau tiền xử lý của dự án phát hiện hành vi bất thường trên camera giám sát.
+Tài liệu này mô tả chi tiết quy trình thực hành phân cụm và khai phá luật kết hợp bằng **WEKA 3.8.7** trên dữ liệu đặc trưng đã được sinh ở SPEC 1. SPEC 2 không xử lý ảnh hoặc video thô. Điểm bắt đầu của SPEC 2 là các file ARFF/CSV đã có trong `src/outputs`.
 
-SPEC 1 đã tạo dữ liệu đặc trưng dạng bảng và xuất ARFF. SPEC 2 tập trung vào việc dùng các file ARFF đó để:
+Trọng tâm của SPEC 2 là:
 
-- kiểm tra nhanh chất lượng feature bằng giao diện WEKA;
-- chạy phân cụm hành vi không gian-thời gian trên dữ liệu train normal;
-- so sánh một số cấu hình phân cụm cơ bản;
-- gán nhãn cụm cho train/test để phục vụ bước anomaly scoring sau này;
-- rời rạc hóa feature và thử khai phá luật kết hợp bằng Apriori trong WEKA;
-- ghi lại kết quả thực nghiệm sao cho có thể đối chiếu với pipeline Python của dự án.
+- mở và kiểm tra dữ liệu đặc trưng trong WEKA Explorer;
+- chuẩn bị đúng bộ thuộc tính để phân cụm;
+- chạy `SimpleKMeans` với **K=5** làm cấu hình thực hành chính;
+- đọc centroid, kích thước cụm và phân bố train/test để hiểu các mẫu hành vi bình thường;
+- tạo token `cluster=C0..C4` để phục vụ giải thích;
+- rời rạc hóa đặc trưng liên tục;
+- chạy `Apriori` để khai phá luật kết hợp trên dữ liệu normal;
+- ghi lại báo cáo thực hành đủ chi tiết để chuyển kết quả sang pipeline Python ở SPEC sau.
 
-WEKA trong SPEC 2 được dùng như công cụ thực nghiệm, phân tích và đối chiếu. Runtime chính của hệ thống vẫn nên được triển khai bằng Python ở các SPEC sau để dễ tự động hóa, tính điểm bất thường, vẽ heatmap và đánh giá ROC-AUC/EER.
+Trong tài liệu này, **K=5 là cấu hình mặc định và bắt buộc**. Các giá trị K khác chỉ được nhắc như bối cảnh tham khảo từ lần thử trước, không phải yêu cầu thực hành chính của SPEC 2.
 
-## 2. Liên hệ với PRD và SPEC 1
+## 2. Liên hệ với PRD và các spec trước
 
-Theo PRD, hai trụ cột nghiên cứu của hệ thống là:
+Theo PRD, dự án có hai trụ cột nghiên cứu:
 
-- phân cụm hành vi-không gian-thời gian;
-- khai phá luật kết hợp để giải thích ngữ cảnh bất thường.
+- phân cụm hành vi-không gian-thời gian để học mẫu bình thường theo vùng camera;
+- khai phá luật kết hợp để giải thích quan hệ giữa vùng, chuyển động, mật độ, độ sáng và cụm hành vi.
 
-SPEC 1 đã hoàn thành phần tạo feature đầu vào cho hai trụ cột này:
+SPEC 1 đã chuẩn bị dữ liệu đầu vào cho hai trụ cột này:
 
-- đọc UCSD Ped1/Ped2 dạng frame `.tif`;
+- đọc UCSD Ped1/Ped2 dạng chuỗi frame `.tif`;
 - đọc CUHK Avenue dạng video `.avi`;
-- resize, grayscale, blur theo cấu hình;
-- chia grid `12 x 16`;
+- resize, grayscale và blur theo cấu hình;
+- chia frame thành grid `12 x 16`;
 - tạo cube độ dài `5`, stride `1`;
 - trích xuất feature bằng frame differencing;
 - xuất `features_train.csv`, `features_test.csv`;
 - xuất ARFF cho WEKA.
 
-SPEC 2 bắt đầu từ các file ARFF đã có, không xử lý ảnh/video thô trong WEKA.
+SPEC 2 dùng WEKA như môi trường thực hành, phân tích và đối chiếu. Runtime chính của hệ thống vẫn nên được tự động hóa bằng Python ở SPEC sau để train hàng loạt theo cell, tính anomaly score, xuất heatmap và đánh giá ROC-AUC/EER.
 
-## 3. Phạm vi
+## 3. Nguyên tắc thực hành SPEC 2
 
-### 3.1. Nằm trong phạm vi
+### 3.1. Cố định phiên bản và cấu hình chính
 
-- Import ARFF vào WEKA Explorer.
-- Kiểm tra schema, số dòng, kiểu thuộc tính và giá trị thiếu.
-- Lọc bỏ các thuộc tính định danh không nên đưa vào mô hình.
-- Chuẩn hóa feature numeric trước khi phân cụm.
-- Chạy phân cụm bằng `SimpleKMeans` làm baseline chính.
-- Thử `EM` để so sánh cụm mềm và số cụm tự ước lượng.
-- Thử `Canopy` hoặc `FarthestFirst` nếu cần baseline nhanh trên dữ liệu lớn.
-- Chạy per-cell clustering ở mức thử nghiệm cho một số cell đại diện.
-- Xuất model, log kết quả, centroid, cluster size và cluster assignment.
-- Dùng `Discretize` và `Apriori` trong WEKA để thử khai phá luật kết hợp.
-- Ghi lại kết quả vào thư mục thí nghiệm và file processed sau khi triển khai.
+Phiên bản công cụ:
 
-### 3.2. Ngoài phạm vi
+```text
+WEKA: 3.8.7
+JVM heap khuyến nghị: 4g đến 8g cho UCSD Ped2, cao hơn nếu thử Avenue
+Giao diện chính: WEKA Explorer
+Tab dùng chính: Preprocess, Cluster, Associate
+```
 
-- Xử lý ảnh/video thô bằng WEKA.
-- Vẽ heatmap bất thường.
-- Tính anomaly score hoàn chỉnh.
-- Tính ROC-AUC/EER hoàn chỉnh.
-- Train model production chạy realtime.
-- Tối ưu thuật toán phân cụm ngoài các baseline có sẵn trong WEKA.
-- Thay thế pipeline Python của dự án.
+Cấu hình phân cụm chính:
+
+```text
+Algorithm: weka.clusterers.SimpleKMeans
+numClusters: 5
+seed: 10
+maxIterations: 500
+preserveInstancesOrder: True
+distanceFunction: EuclideanDistance
+feature scaling: Standardize trước khi train
+```
+
+Quy ước cụm:
+
+```text
+cluster_id = C0, C1, C2, C3, C4
+```
+
+Không được diễn giải `C0..C4` như nhãn ngữ nghĩa cố định trước khi đọc centroid. Ý nghĩa cụm phải được suy ra từ centroid, kích thước cụm và phân bố feature sau khi chuẩn hóa.
+
+### 3.2. Ưu tiên dữ liệu
+
+Thực hành theo thứ tự:
+
+1. `ucsd_ped2_features_train.arff`: dữ liệu chính để train và phân tích.
+2. `ucsd_ped2_features_test.arff`: dữ liệu để kiểm tra phân bố cụm trên test.
+3. `ucsd_ped1_features_train.arff`: mở rộng nếu Ped2 ổn.
+4. `avenue_features_train.arff`: chỉ thử sau cùng vì dữ liệu lớn.
+
+SPEC 2 phải hoàn thành trên UCSD Ped2 trước khi mở rộng sang dataset khác.
+
+### 3.3. Không đưa metadata vào KMeans baseline
+
+Các cột như `dataset`, `split`, `video_id`, `cube_id`, `start_frame_id`, `end_frame_id`, `center_frame_id` dùng để truy vết, không dùng để phân cụm. Nếu đưa vào mô hình, KMeans có thể học định danh hoặc thứ tự thời gian thay vì hành vi.
+
+Với baseline hành vi chính, chỉ dùng:
+
+```text
+foreground_ratio
+motion_magnitude_mean
+motion_magnitude_std
+motion_density
+brightness_mean
+brightness_delta
+```
+
+Trong ARFF gốc, đây là các cột:
+
+```text
+11-14,23-24
+```
 
 ## 4. Dữ liệu đầu vào
 
-Các file ARFF đầu vào mặc định nằm tại:
+Các file ARFF mặc định:
 
 ```text
 src/outputs/weka/
@@ -75,14 +116,19 @@ src/outputs/weka/
   avenue_features_test.arff
 ```
 
-Thứ tự ưu tiên thực nghiệm:
+Các file CSV metadata tương ứng:
 
-1. `ucsd_ped2_features_train.arff`: nhỏ hơn Avenue, phù hợp để kiểm tra quy trình.
-2. `ucsd_ped2_features_test.arff`: dùng để gán cụm và so sánh phân bố train/test.
-3. `ucsd_ped1_features_train.arff`: mở rộng sau khi Ped2 ổn.
-4. `avenue_features_train.arff`: dữ liệu lớn hơn, chỉ chạy sau khi quy trình và cấu hình đã rõ.
+```text
+src/outputs/preprocessed/{dataset}/
+  features_train.csv
+  features_test.csv
+  frames_manifest.csv
+  videos_manifest.csv
+  grid.json
+  preprocess_stats.json
+```
 
-Kích thước dữ liệu hiện tại theo `preprocess_stats.json`:
+Kích thước dữ liệu hiện tại:
 
 ```text
 UCSD Ped2 train:
@@ -99,6 +145,20 @@ UCSD Ped2 test:
   cells: 192
   feature rows: 376704
 
+UCSD Ped1 train:
+  videos: 34
+  frames: 6800
+  cubes: 6664
+  cells: 192
+  feature rows: 1279488
+
+UCSD Ped1 test:
+  videos: 36
+  frames: 7200
+  cubes: 7056
+  cells: 192
+  feature rows: 1354752
+
 Avenue train:
   videos: 16
   frames: 15328
@@ -114,7 +174,7 @@ Avenue test:
   feature rows: 2926080
 ```
 
-Với Avenue, nên dùng sample hoặc chạy batch/CLI vì file ARFF có kích thước lớn.
+Với Avenue, WEKA Explorer có thể chậm hoặc hết bộ nhớ. Không dùng Avenue làm bài thực hành đầu tiên.
 
 ## 5. Schema feature
 
@@ -147,22 +207,20 @@ ARFF từ SPEC 1 có các thuộc tính:
 24 brightness_delta
 ```
 
-Ghi chú quan trọng:
+Ghi chú:
 
-- `dataset`, `split`, `video_id`, `cube_id` là định danh, không dùng để phân cụm.
-- `start_frame_id`, `end_frame_id`, `center_frame_id` có thể tạo nhiễu hoặc làm cụm học theo thứ tự thời gian, không dùng trong baseline đầu tiên.
-- `cell_id` là nominal, hữu ích để truy vết, nhưng không nên đưa trực tiếp vào KMeans baseline.
-- `cell_row`, `cell_col` có thể dùng cho global spatio-temporal clustering, nhưng không dùng trong per-cell clustering.
-- `direction_hist_0..7` hiện bằng `0.0` với `motion_method = frame_diff`, nên bỏ khỏi baseline đầu tiên.
-- Các feature numeric chính hiện nên dùng là `foreground_ratio`, `motion_magnitude_mean`, `motion_magnitude_std`, `motion_density`, `brightness_mean`, `brightness_delta`.
+- `cell_id` là nominal, cần giữ khi khai phá luật hoặc truy vết, nhưng không dùng trực tiếp trong KMeans behavior-only.
+- `cell_row`, `cell_col` chỉ dùng ở thí nghiệm spatio-behavior để kiểm tra ảnh hưởng vị trí.
+- `direction_hist_0..7` hiện chưa mang thông tin hướng đáng tin cậy với `motion_method = frame_diff`, nên loại khỏi baseline KMeans.
+- `brightness_mean` có thang đo khác motion feature, vì vậy phải dùng `Standardize` trước KMeans.
 
-## 6. Bộ thuộc tính đề xuất
+## 6. Bộ dữ liệu thực hành trong WEKA
 
-### 6.1. Baseline A - Behavior-only global clustering
+### 6.1. Baseline A - Global behavior KMeans K=5
 
-Mục tiêu: kiểm tra xem feature chuyển động và ánh sáng có tạo được cụm hành vi cơ bản hay không.
+Mục tiêu: kiểm tra các mẫu hành vi tổng quát dựa trên motion và brightness, không cho model biết vị trí.
 
-Giữ các thuộc tính:
+Giữ:
 
 ```text
 foreground_ratio
@@ -173,23 +231,20 @@ brightness_mean
 brightness_delta
 ```
 
-Trong ARFF gốc, giữ index:
+Trong ARFF gốc:
 
 ```text
-11-14,23-24
+Giữ: 11-14,23-24
+Loại: 1-10,15-22
 ```
 
-Loại bỏ:
+Đây là dataset chính của SPEC 2.
 
-```text
-1-10,15-22
-```
+### 6.2. Baseline B - Global spatio-behavior KMeans K=5
 
-### 6.2. Baseline B - Spatio-behavior global clustering
+Mục tiêu: kiểm tra nếu thêm vị trí cell thì cụm có bị chi phối bởi không gian hay không.
 
-Mục tiêu: cho phép cụm học thêm vị trí cell trong frame.
-
-Giữ các thuộc tính:
+Giữ:
 
 ```text
 cell_row
@@ -202,201 +257,37 @@ brightness_mean
 brightness_delta
 ```
 
-Trong ARFF gốc, giữ index:
+Trong ARFF gốc:
 
 ```text
-9-14,23-24
+Giữ: 9-14,23-24
+Loại: 1-8,15-22
 ```
 
-Baseline này có thể tạo cụm theo vùng không gian. Cần so sánh với Baseline A để tránh trường hợp model chỉ học vị trí mà không học hành vi.
+Baseline B chỉ dùng để phân tích. Nếu centroid chủ yếu tách theo `cell_row`, `cell_col`, không nên dùng nó làm baseline scoring chính.
 
-### 6.3. Baseline C - Per-cell behavior clustering
+### 6.3. Dataset C - Per-cell behavior KMeans K=5
 
-Mục tiêu: bám sát PRD hơn, vì mỗi cell/zone có normal pattern riêng.
+Mục tiêu: bám sát PRD hơn vì mỗi cell/zone có normal pattern riêng.
 
-Với mỗi cell được chọn, lọc dữ liệu theo `cell_id`, sau đó giữ:
+Quy trình:
+
+1. Lọc dữ liệu theo một `cell_id`.
+2. Sau khi chỉ còn một cell, loại toàn bộ metadata.
+3. Giữ 6 feature hành vi như Baseline A.
+4. `Standardize`.
+5. Chạy `SimpleKMeans` với `K=5`.
+
+Cell khởi đầu đề xuất:
 
 ```text
-foreground_ratio
-motion_magnitude_mean
-motion_magnitude_std
-motion_density
-brightness_mean
-brightness_delta
+04_08
+06_08
+08_05
+09_06
 ```
 
-Không giữ `cell_row`, `cell_col`, `cell_id` vì tất cả bản ghi đã thuộc cùng một cell.
-
-Trong WEKA Explorer, chỉ nên thử per-cell cho một số cell đại diện. Chạy đủ `192` cell bằng tay sẽ tốn thời gian và dễ sai. Nếu cần chạy toàn bộ cell, nên dùng WEKA CLI hoặc chuyển sang Python ở SPEC sau.
-
-## 7. Quy trình thao tác trong WEKA Explorer
-
-### Bước 1 - Mở dữ liệu
-
-1. Mở `WEKA Explorer`.
-2. Vào tab `Preprocess`.
-3. Chọn `Open file`.
-4. Mở `src/outputs/weka/ucsd_ped2_features_train.arff`.
-5. Kiểm tra số instances, số attributes và kiểu dữ liệu.
-
-Điều kiện chấp nhận:
-
-- WEKA đọc được file không lỗi parse ARFF.
-- Các feature numeric không bị nhận nhầm thành string.
-- `cell_id` là nominal.
-- Không có cột numeric bị missing hàng loạt.
-
-### Bước 2 - Lọc thuộc tính
-
-Với Baseline A, dùng filter:
-
-```text
-weka.filters.unsupervised.attribute.Remove
-```
-
-Cách cấu hình:
-
-```text
-attributeIndices: 11-14,23-24
-invertSelection: True
-```
-
-Sau khi apply, chỉ còn 6 thuộc tính numeric.
-
-Với Baseline B:
-
-```text
-attributeIndices: 9-14,23-24
-invertSelection: True
-```
-
-Sau khi apply, chỉ còn 8 thuộc tính numeric.
-
-### Bước 3 - Xử lý missing value
-
-Nếu WEKA báo có missing value, dùng:
-
-```text
-weka.filters.unsupervised.attribute.ReplaceMissingValues
-```
-
-Điều kiện mong đợi: SPEC 1 không sinh missing value trong feature numeric. Bước này chủ yếu là guard.
-
-### Bước 4 - Chuẩn hóa feature
-
-Do `brightness_mean` có thang `[0, 255]` còn motion feature thường nhỏ hơn nhiều, cần chuẩn hóa trước KMeans.
-
-Filter đề xuất:
-
-```text
-weka.filters.unsupervised.attribute.Standardize
-```
-
-Có thể dùng `Normalize`, nhưng `Standardize` phù hợp hơn cho KMeans khi các feature có đơn vị đo khác nhau.
-
-### Bước 5 - Chạy SimpleKMeans
-
-Vào tab `Cluster`, chọn:
-
-```text
-weka.clusterers.SimpleKMeans
-```
-
-Cấu hình baseline:
-
-```text
-numClusters: 5
-seed: 10
-maxIterations: 500
-preserveInstancesOrder: True
-```
-
-Chạy các cấu hình K:
-
-```text
-K = 3
-K = 5
-K = 8
-```
-
-Lưu lại:
-
-- cluster centroids;
-- number of instances per cluster;
-- within cluster sum of squared errors;
-- thời gian chạy;
-- nhận xét xem centroid có ý nghĩa hành vi hay không.
-
-### Bước 6 - Gán cụm cho test set
-
-Sau khi có cấu hình tốt trên train:
-
-1. Lưu model clusterer.
-2. Mở hoặc cung cấp `ucsd_ped2_features_test.arff`.
-3. Áp dụng đúng chuỗi filter đã dùng cho train.
-4. Gán cluster cho test set bằng model đã train.
-5. Xuất cluster assignment để đối chiếu với metadata gốc.
-
-Lưu ý: filter train và test phải giống nhau tuyệt đối. Nếu thao tác thủ công trong Explorer dễ lệch, cần ghi rõ cấu hình filter trong log.
-
-### Bước 7 - Lưu kết quả
-
-Kết quả thí nghiệm nên lưu ngoài repo hoặc dưới thư mục output bị `.gitignore`:
-
-```text
-src/outputs/weka_experiments/
-  spec_2_log.md
-  models/
-    ucsd_ped2_behavior_kmeans_k3.model
-    ucsd_ped2_behavior_kmeans_k5.model
-    ucsd_ped2_behavior_kmeans_k8.model
-  reports/
-    ucsd_ped2_behavior_kmeans_k3.txt
-    ucsd_ped2_behavior_kmeans_k5.txt
-    ucsd_ped2_behavior_kmeans_k8.txt
-  assignments/
-    ucsd_ped2_train_behavior_k5_clusters.csv
-    ucsd_ped2_test_behavior_k5_clusters.csv
-```
-
-Nếu export bằng Explorer không giữ được đầy đủ metadata, cần lưu thêm mapping từ file CSV gốc:
-
-```text
-src/outputs/preprocessed/ucsd_ped2/features_train.csv
-src/outputs/preprocessed/ucsd_ped2/features_test.csv
-```
-
-Mapping tối thiểu cần giữ:
-
-```text
-dataset
-split
-video_id
-cube_id
-start_frame_id
-end_frame_id
-center_frame_id
-cell_id
-cluster_id
-```
-
-## 8. Quy trình per-cell clustering trong WEKA
-
-### 8.1. Lý do cần per-cell
-
-PRD ưu tiên học normal pattern riêng theo từng cell/zone. Một chuyển động có thể bình thường ở vùng này nhưng bất thường ở vùng khác. Vì vậy, per-cell clustering là hướng chính sau khi global baseline chạy ổn.
-
-### 8.2. Chọn cell thử nghiệm
-
-Không chạy ngay toàn bộ `192` cell trong Explorer. Chọn một nhóm nhỏ:
-
-- cell có motion density trung bình cao;
-- cell có motion density trung bình thấp;
-- cell ở vùng biên;
-- cell ở vùng giữa khung hình;
-- cell nghi ngờ có nhiều chuyển động bất thường trong test.
-
-Danh sách khởi đầu đề xuất:
+Nếu muốn phân tích rộng hơn:
 
 ```text
 04_08
@@ -409,15 +300,200 @@ Danh sách khởi đầu đề xuất:
 09_06
 ```
 
-Danh sách này chỉ là điểm bắt đầu, cần điều chỉnh sau khi xem phân bố motion thực tế.
+Không chạy thủ công đủ `192` cell bằng Explorer. Nếu cần chạy tất cả cell, chuyển sang WEKA CLI hoặc Python.
 
-### 8.3. Lọc theo cell trong WEKA
+### 6.4. Dataset D - Association rules sau KMeans K=5
 
-Cách làm thủ công:
+Mục tiêu: tạo dữ liệu nominal để chạy Apriori.
 
-1. Mở `ucsd_ped2_features_train.arff`.
-2. Dùng filter theo instance để giữ một giá trị `cell_id`.
-3. Sau khi chỉ còn một cell, dùng `Remove` để giữ các thuộc tính behavior:
+Giữ:
+
+```text
+cell_id
+motion_magnitude_mean
+motion_density
+brightness_mean
+brightness_delta
+cluster_id
+```
+
+Trong đó `cluster_id` là cụm `C0..C4` từ KMeans K=5. Nếu chưa có `cluster_id`, vẫn có thể chạy luật trên feature rời rạc hóa, nhưng phần rule sẽ thiếu token cụm hành vi.
+
+Loại:
+
+```text
+dataset
+split
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+cell_row
+cell_col
+foreground_ratio nếu tạo quá nhiều luật nhiễu
+motion_magnitude_std nếu khó diễn giải
+direction_hist_0..7
+```
+
+## 7. Cấu trúc output thực hành
+
+Kết quả thực hành nên lưu dưới thư mục output bị `.gitignore`:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/
+  spec_2_log.md
+  prepared/
+    ucsd_ped2_train_behavior_k5_standardized.arff
+    ucsd_ped2_test_behavior_k5_standardized.arff
+    ucsd_ped2_train_spatiobehavior_k5_standardized.arff
+    ucsd_ped2_train_rules_k5_discretized.arff
+  models/
+    ucsd_ped2_global_behavior_simplekmeans_k5.model
+    ucsd_ped2_global_spatiobehavior_simplekmeans_k5.model
+  reports/
+    ucsd_ped2_global_behavior_simplekmeans_k5_train.txt
+    ucsd_ped2_global_behavior_simplekmeans_k5_test.txt
+    ucsd_ped2_global_spatiobehavior_simplekmeans_k5_train.txt
+    ucsd_ped2_rules_apriori_k5.txt
+  assignments/
+    ucsd_ped2_train_behavior_k5_clusters.csv
+    ucsd_ped2_test_behavior_k5_clusters.csv
+  rules/
+    ucsd_ped2_rules_k5_selected.md
+```
+
+Quy ước đặt tên:
+
+```text
+{dataset}_{scope}_{feature_set}_{algorithm}_k5
+```
+
+Ví dụ:
+
+```text
+ucsd_ped2_global_behavior_simplekmeans_k5
+ucsd_ped2_global_spatiobehavior_simplekmeans_k5
+ucsd_ped2_cell_08_05_behavior_simplekmeans_k5
+ucsd_ped2_rules_discretize5_apriori_k5_s001_c06
+```
+
+## 8. Chuẩn bị WEKA 3.8.7
+
+### 8.1. Mở WEKA với heap đủ lớn
+
+Trên Windows, có thể mở bằng shortcut WEKA nếu dataset nhỏ. Với UCSD Ped2 full, nên mở bằng JVM heap rõ ràng:
+
+```powershell
+java -Xmx8g -cp "C:\Program Files\Weka-3-8-7\weka.jar" weka.gui.GUIChooser
+```
+
+Nếu đường dẫn khác, thay lại vị trí `weka.jar`.
+
+Kiểm tra phiên bản:
+
+1. Mở `GUIChooser`.
+2. Chọn menu `Help`.
+3. Chọn `About`.
+4. Ghi vào log: `WEKA 3.8.7`.
+
+### 8.2. Tạo log trước khi thao tác
+
+Tạo hoặc mở:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/spec_2_log.md
+```
+
+Mỗi lần chạy cần ghi:
+
+```text
+experiment_id:
+date:
+weka_version:
+input_file:
+num_instances:
+num_attributes_before_filter:
+filter_steps:
+algorithm:
+parameters:
+runtime:
+output_files:
+observations:
+accepted_or_rejected:
+reason:
+```
+
+Không chỉ chụp màn hình. Cần copy text output từ WEKA để kết quả có thể đọc lại.
+
+## 9. Thực hành 1 - Mở và kiểm tra ARFF
+
+### 9.1. Mở dữ liệu train
+
+Trong WEKA Explorer:
+
+1. Chọn `Explorer`.
+2. Vào tab `Preprocess`.
+3. Chọn `Open file`.
+4. Mở:
+
+```text
+src/outputs/weka/ucsd_ped2_features_train.arff
+```
+
+Kiểm tra:
+
+- số instances khoảng `477312`;
+- số attributes là `24`;
+- `cell_id` là nominal;
+- các cột feature chính là numeric;
+- không có missing value bất thường;
+- relation name đọc được bình thường.
+
+Ghi vào log:
+
+```text
+dataset = ucsd_ped2
+split = train
+instances = 477312
+attributes = 24
+```
+
+### 9.2. Mở dữ liệu test
+
+Lặp lại với:
+
+```text
+src/outputs/weka/ucsd_ped2_features_test.arff
+```
+
+Kiểm tra:
+
+```text
+instances = 376704
+attributes = 24
+```
+
+Không apply filter lên test trước khi đã ghi rõ chuỗi filter dùng cho train.
+
+## 10. Thực hành 2 - Tạo Baseline A behavior-only
+
+### 10.1. Remove metadata và cột không dùng
+
+Trong tab `Preprocess`, chọn filter:
+
+```text
+weka.filters.unsupervised.attribute.Remove
+```
+
+Cấu hình theo cách giữ cột:
+
+```text
+attributeIndices: 11-14,23-24
+invertSelection: True
+```
+
+Sau khi nhấn `Apply`, dataset chỉ còn:
 
 ```text
 foreground_ratio
@@ -428,68 +504,245 @@ brightness_mean
 brightness_delta
 ```
 
-4. Dùng `Standardize`.
-5. Chạy `SimpleKMeans` với `K = 3`, `5`, `8`.
-
-Nếu thao tác lọc instance trong Explorer quá chậm, cần tạo file ARFF per-cell bằng script ở SPEC sau, rồi dùng WEKA chỉ để chạy clusterer.
-
-### 8.4. Kết quả cần ghi cho mỗi cell
+Điều kiện chấp nhận:
 
 ```text
-dataset
-cell_id
-num_train_instances
-algorithm
-K
-cluster_sizes
-centroids
-within_cluster_sse
-nhận xét ý nghĩa cụm
+instances = 477312
+attributes = 6
+all attributes = numeric
 ```
 
-Ví dụ nhận xét mong muốn:
+### 10.2. Xử lý missing value nếu có
+
+Nếu WEKA báo missing value, dùng:
 
 ```text
-cell=08_05, K=5:
-  C0: gần như đứng yên, brightness trung bình
-  C1: chuyển động nhẹ, density thấp
-  C2: chuyển động mạnh, density cao
-  C3: brightness thay đổi mạnh
-  C4: cụm nhỏ, có thể là nhiễu hoặc hành vi hiếm
+weka.filters.unsupervised.attribute.ReplaceMissingValues
 ```
 
-## 9. Khai phá luật kết hợp trong WEKA
+Kỳ vọng của SPEC 1 là không có missing value trong feature numeric. Nếu có missing value, phải ghi rõ cột nào và số lượng bao nhiêu.
 
-### 9.1. Mục tiêu
+### 10.3. Chuẩn hóa feature
 
-Thử dùng WEKA để khai phá luật quan hệ giữa vùng, mức chuyển động, mật độ, độ sáng và cluster. Phần này hỗ trợ trụ cột thứ hai của PRD: association rule mining.
-
-### 9.2. Chuẩn bị dữ liệu
-
-Apriori trong WEKA cần dữ liệu rời rạc/nominal. Với feature numeric, cần dùng:
+Chọn filter:
 
 ```text
-weka.filters.unsupervised.attribute.Discretize
+weka.filters.unsupervised.attribute.Standardize
 ```
 
-Nguồn dữ liệu đề xuất:
+Nhấn `Apply`.
 
-- `ucsd_ped2_features_train.arff`;
-- bản đã gắn thêm `cluster_id` từ KMeans, nếu có.
+Lý do bắt buộc:
 
-Thuộc tính nên giữ:
+- `brightness_mean` có thang `[0, 255]`;
+- motion feature thường nhỏ hơn nhiều;
+- KMeans dùng khoảng cách Euclidean nên sẽ bị lệch nếu không chuẩn hóa.
+
+Sau khi chuẩn hóa, lưu dataset:
 
 ```text
-cell_id
-foreground_ratio
-motion_magnitude_mean
-motion_density
-brightness_mean
-brightness_delta
-cluster_id
+src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/
+  ucsd_ped2_train_behavior_k5_standardized.arff
 ```
 
-Thuộc tính nên bỏ:
+### 10.4. Lặp lại filter cho test
+
+Mở `ucsd_ped2_features_test.arff` và áp dụng cùng chuỗi:
+
+1. `Remove` giữ `11-14,23-24`.
+2. `ReplaceMissingValues` nếu train đã dùng.
+3. `Standardize`.
+
+Lưu:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/
+  ucsd_ped2_test_behavior_k5_standardized.arff
+```
+
+Lưu ý quan trọng: với thực hành Explorer, `Standardize` trên test có thể fit lại thống kê của test. Điều này chấp nhận được cho bài phân tích thủ công, nhưng khi triển khai production phải dùng scaler học từ train. Vì vậy, kết quả WEKA chỉ là thực nghiệm đối chiếu, không phải pipeline cuối.
+
+## 11. Thực hành 3 - Chạy SimpleKMeans K=5 cho Baseline A
+
+### 11.1. Cấu hình clusterer
+
+Vào tab `Cluster`, chọn:
+
+```text
+weka.clusterers.SimpleKMeans
+```
+
+Cấu hình:
+
+```text
+numClusters: 5
+seed: 10
+maxIterations: 500
+preserveInstancesOrder: True
+displayStdDevs: True nếu có
+dontReplaceMissingValues: False
+distanceFunction: weka.core.EuclideanDistance
+```
+
+Nếu WEKA 3.8.7 hiển thị `initializationMethod`, dùng:
+
+```text
+initializationMethod: k-means++
+```
+
+Nếu giữ mặc định, ghi rõ trong log.
+
+### 11.2. Chọn test mode
+
+Đối với lần train đầu tiên:
+
+```text
+Test mode: Use training set
+```
+
+Nhấn `Start`.
+
+Sau khi chạy xong, copy toàn bộ output vào:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/
+  ucsd_ped2_global_behavior_simplekmeans_k5_train.txt
+```
+
+Lưu model:
+
+1. Nhấp phải vào result trong `Result list`.
+2. Chọn `Save model`.
+3. Lưu thành:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/models/
+  ucsd_ped2_global_behavior_simplekmeans_k5.model
+```
+
+### 11.3. Kết quả tham chiếu đã có
+
+Kết quả KMeans K=5 behavior-only đã từng ghi trong `src/doc/Kmean.md`:
+
+```text
+Algorithm: SimpleKMeans
+Dataset: UCSD Ped2 train
+Feature set: 11-14,23-24
+K: 5
+Iterations: 37
+Within cluster sum of squared errors: 6491.182908722241
+
+Train cluster sizes:
+  C0: 27842  ( 6%)
+  C1: 182948 (38%)
+  C2: 16491  ( 3%)
+  C3: 116779 (24%)
+  C4: 133252 (28%)
+
+Supplied test set cluster sizes:
+  C0: 29347  ( 8%)
+  C1: 123477 (33%)
+  C2: 26080  ( 7%)
+  C3: 93161  (25%)
+  C4: 104639 (28%)
+```
+
+Centroid chuẩn hóa tham chiếu:
+
+```text
+C0:
+  foreground_ratio          1.6539
+  motion_magnitude_mean     1.6991
+  motion_magnitude_std      2.2719
+  motion_density            1.5698
+  brightness_mean           0.4286
+  brightness_delta         -0.0129
+
+C1:
+  foreground_ratio         -0.2889
+  motion_magnitude_mean    -0.3077
+  motion_magnitude_std     -0.3149
+  motion_density           -0.2838
+  brightness_mean           1.1285
+  brightness_delta          0.0194
+
+C2:
+  foreground_ratio          4.3947
+  motion_magnitude_mean     4.2516
+  motion_magnitude_std      3.6867
+  motion_density            4.4482
+  brightness_mean           0.1163
+  brightness_delta         -0.1427
+
+C3:
+  foreground_ratio         -0.3128
+  motion_magnitude_mean    -0.3537
+  motion_magnitude_std     -0.3873
+  motion_density           -0.3026
+  brightness_mean          -1.1691
+  brightness_delta          0.0039
+
+C4:
+  foreground_ratio         -0.2187
+  motion_magnitude_mean    -0.1487
+  motion_magnitude_std     -0.1592
+  motion_density           -0.2237
+  brightness_mean          -0.6288
+  brightness_delta          0.0100
+```
+
+Diễn giải khởi đầu:
+
+- `C2` là cụm nhỏ, motion rất cao, có thể đại diện cho chuyển động mạnh hoặc nhiễu hiếm.
+- `C0` là cụm motion cao vừa, không hiếm bằng `C2`.
+- `C1`, `C3`, `C4` chủ yếu là motion thấp nhưng khác nhau theo độ sáng.
+- Vì dữ liệu train là normal, cụm nhỏ không tự động đồng nghĩa bất thường. Cụm nhỏ chỉ là ứng viên để kiểm tra kỹ hơn ở bước scoring.
+
+### 11.4. Tiêu chí chấp nhận kết quả K=5
+
+Kết quả K=5 được xem là dùng được nếu:
+
+- WEKA chạy xong không lỗi bộ nhớ;
+- không có một cụm duy nhất chiếm gần toàn bộ dữ liệu;
+- centroid có thể diễn giải bằng motion và brightness;
+- có ít nhất một cụm motion cao hoặc motion hiếm để phân tích;
+- train/test có phân bố cụm không lệch quá bất thường;
+- model được lưu lại;
+- report được copy ra file text.
+
+## 12. Thực hành 4 - Supplied test set cho KMeans K=5
+
+### 12.1. Chạy test trong tab Cluster
+
+Sau khi train model trên train:
+
+1. Giữ cấu hình `SimpleKMeans K=5`.
+2. Trong `Test mode`, chọn `Supplied test set`.
+3. Chọn file đã chuẩn bị:
+
+```text
+ucsd_ped2_test_behavior_k5_standardized.arff
+```
+
+4. Nhấn `Start`.
+5. Copy output vào:
+
+```text
+src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/
+  ucsd_ped2_global_behavior_simplekmeans_k5_test.txt
+```
+
+Ghi lại:
+
+```text
+cluster sizes on test
+runtime
+nhận xét train/test distribution shift
+```
+
+### 12.2. Gán cụm về metadata
+
+Mục tiêu cuối là có mapping:
 
 ```text
 dataset
@@ -499,80 +752,512 @@ cube_id
 start_frame_id
 end_frame_id
 center_frame_id
+cell_id
+cluster_id
+```
+
+Trong Explorer, việc export cluster assignment từng dòng có thể bất tiện với dữ liệu lớn. Có ba lựa chọn:
+
+1. Dùng `preserveInstancesOrder=True`, xuất prediction/assignment nếu môi trường WEKA đang dùng hỗ trợ.
+2. Dùng WEKA CLI để xuất cluster assignment theo thứ tự instance.
+3. Chuyển sang Python ở SPEC 3 để gán cụm hàng loạt bằng model tương đương.
+
+Trong SPEC 2, mức tối thiểu bắt buộc là ghi được phân bố cụm train/test và lưu model/report. File assignment từng dòng là khuyến nghị, không phải điều kiện duy nhất để hoàn thành phần thực hành WEKA thủ công.
+
+Nếu xuất được assignment, join theo thứ tự dòng với:
+
+```text
+src/outputs/preprocessed/ucsd_ped2/features_train.csv
+src/outputs/preprocessed/ucsd_ped2/features_test.csv
+```
+
+Không được làm mất các cột truy vết `video_id`, `cube_id`, `center_frame_id`, `cell_id`.
+
+## 13. Thực hành 5 - Baseline B spatio-behavior KMeans K=5
+
+### 13.1. Tạo dataset
+
+Mở lại ARFF train gốc:
+
+```text
+src/outputs/weka/ucsd_ped2_features_train.arff
+```
+
+Filter `Remove`:
+
+```text
+attributeIndices: 9-14,23-24
+invertSelection: True
+```
+
+Sau đó dùng:
+
+```text
+Standardize
+```
+
+Lưu:
+
+```text
+prepared/ucsd_ped2_train_spatiobehavior_k5_standardized.arff
+```
+
+### 13.2. Chạy SimpleKMeans K=5
+
+Cấu hình giống Baseline A:
+
+```text
+SimpleKMeans
+numClusters: 5
+seed: 10
+maxIterations: 500
+preserveInstancesOrder: True
+```
+
+Lưu:
+
+```text
+models/ucsd_ped2_global_spatiobehavior_simplekmeans_k5.model
+reports/ucsd_ped2_global_spatiobehavior_simplekmeans_k5_train.txt
+```
+
+### 13.3. Kết quả tham chiếu đã có
+
+Kết quả đã ghi trong `src/doc/Kmean.md`:
+
+```text
+Algorithm: SimpleKMeans
+Dataset: UCSD Ped2 train
+Feature set: 9-14,23-24
+K: 5
+Iterations: 19
+Within cluster sum of squared errors: 39528.79068974148
+
+Train cluster sizes:
+  C0: 103507 (22%)
+  C1: 104017 (22%)
+  C2: 34287  ( 7%)
+  C3: 120553 (25%)
+  C4: 114948 (24%)
+
+Supplied test set cluster sizes:
+  C0: 71095 (19%)
+  C1: 74284 (20%)
+  C2: 44780 (12%)
+  C3: 94962 (25%)
+  C4: 91583 (24%)
+```
+
+Nhận xét cần kiểm tra:
+
+- nếu centroid của `cell_row`, `cell_col` tách cụm rất mạnh, model đang học vị trí nhiều hơn hành vi;
+- nếu cụm motion cao vẫn xuất hiện rõ, Baseline B có thể hữu ích cho phân tích không gian;
+- Baseline B không thay thế per-cell clustering trong pipeline chính.
+
+## 14. Thực hành 6 - Per-cell KMeans K=5
+
+### 14.1. Lý do
+
+PRD nhấn mạnh rằng hành vi bình thường phụ thuộc vị trí. Một cell ở vỉa hè và một cell ở lòng đường có thể có motion normal khác nhau. Vì vậy, per-cell KMeans là hướng phù hợp hơn cho anomaly scoring, dù WEKA Explorer chỉ nên dùng để thử trên một số cell đại diện.
+
+### 14.2. Lọc một cell trong WEKA Explorer
+
+Mở:
+
+```text
+src/outputs/weka/ucsd_ped2_features_train.arff
+```
+
+Trong tab `Preprocess`, dùng filter instance:
+
+```text
+weka.filters.unsupervised.instance.RemoveWithValues
+```
+
+Cấu hình:
+
+```text
+attributeIndex: 8
+nominalIndices: giá trị tương ứng với cell cần giữ
+invertSelection: True
+```
+
+Vì `nominalIndices` phụ thuộc thứ tự giá trị nominal trong ARFF, cần kiểm tra danh sách giá trị của `cell_id` trong giao diện WEKA trước khi apply.
+
+Nếu thao tác này khó hoặc dễ nhầm, tạo ARFF per-cell từ CSV bằng script riêng ở SPEC sau. Với SPEC 2, chỉ cần làm thủ công cho vài cell đại diện.
+
+### 14.3. Chuẩn bị feature sau khi lọc cell
+
+Sau khi chỉ còn một cell, dùng `Remove` để giữ:
+
+```text
+11-14,23-24
+```
+
+Sau đó:
+
+```text
+ReplaceMissingValues nếu cần
+Standardize
+SimpleKMeans K=5
+```
+
+Lưu report theo mẫu:
+
+```text
+reports/ucsd_ped2_cell_08_05_behavior_simplekmeans_k5.txt
+```
+
+### 14.4. Kết quả cần ghi cho mỗi cell
+
+```text
+cell_id:
+num_train_instances:
+feature_set:
+algorithm: SimpleKMeans
+K: 5
+seed:
+iterations:
+within_cluster_sse:
+cluster_sizes:
+centroid_summary:
+interpretation:
+usable_for_python_pipeline: yes/no
+notes:
+```
+
+Ví dụ diễn giải mong muốn:
+
+```text
+cell=08_05, K=5:
+  C0: motion gần 0, brightness thấp
+  C1: motion thấp, brightness cao
+  C2: motion trung bình, density tăng
+  C3: motion rất cao, cụm nhỏ
+  C4: brightness_delta thay đổi mạnh, có thể là nhiễu ánh sáng
+```
+
+Không cần các cụm của mọi cell có cùng ý nghĩa. `C2` ở cell này không nhất thiết tương đương `C2` ở cell khác.
+
+## 15. Thực hành 7 - Tạo dữ liệu cho khai phá luật
+
+### 15.1. Mục tiêu rule mining
+
+Apriori trong WEKA dùng để tìm các quan hệ phổ biến trong train normal, ví dụ:
+
+```text
+cell_id=08_05 brightness=normal -> motion_density=low
+cluster_id=C1 motion_density=low -> brightness=bright
+cell_id=06_08 motion=slow -> cluster_id=C3
+```
+
+Các luật này không trực tiếp là nhãn bất thường. Chúng mô tả pattern normal. Khi test vi phạm một luật có support/confidence tốt, pipeline sau có thể dùng nó như tín hiệu giải thích phụ.
+
+### 15.2. Tạo cluster_id K=5
+
+Nếu đã có cluster assignment từ KMeans, thêm cột:
+
+```text
+cluster_id
+```
+
+Giá trị:
+
+```text
+C0
+C1
+C2
+C3
+C4
+```
+
+Nếu chưa có assignment từng dòng, vẫn chạy Apriori không có `cluster_id`, nhưng phải ghi rõ:
+
+```text
+cluster_id not available in this WEKA manual run
+```
+
+### 15.3. Chọn thuộc tính cho Apriori
+
+Dataset rules tối thiểu:
+
+```text
+cell_id
+motion_magnitude_mean
+motion_density
+brightness_mean
+brightness_delta
+cluster_id
+```
+
+Có thể thêm:
+
+```text
+foreground_ratio
+motion_magnitude_std
+```
+
+nhưng chỉ thêm nếu số luật không quá vụn và vẫn diễn giải được.
+
+Không đưa:
+
+```text
+video_id
+cube_id
+frame_id
+start_frame_id
+end_frame_id
+center_frame_id
 direction_hist_0..7
 ```
 
-### 9.3. Rời rạc hóa
+## 16. Thực hành 8 - Rời rạc hóa feature numeric
 
-Cấu hình ban đầu:
+### 16.1. Vì sao cần rời rạc hóa
 
-```text
-Discretize:
-  bins: 3 hoặc 5
-  useEqualFrequency: True
-```
+`Apriori` trong WEKA làm việc tốt với thuộc tính nominal. Các feature như `motion_density`, `motion_magnitude_mean`, `brightness_mean` là numeric nên cần rời rạc hóa thành các khoảng.
 
 Mục tiêu token:
 
 ```text
-motion_density = low | medium | high
 motion_magnitude_mean = still | slow | medium | fast | very_fast
+motion_density = low | medium | high
 brightness_mean = dark | normal | bright
 brightness_delta = stable | changing
-cluster_id = C0 | C1 | C2 | ...
+cluster_id = C0 | C1 | C2 | C3 | C4
 cell_id = 08_05 | ...
 ```
 
-WEKA có thể tạo tên bin dạng khoảng số. Khi đưa về báo cáo, cần diễn giải lại các khoảng này thành token dễ hiểu.
+WEKA có thể đặt tên bin dạng khoảng số. Khi viết báo cáo, cần dịch các khoảng số đó thành mô tả dễ hiểu.
 
-### 9.4. Chạy Apriori
+### 16.2. Cách làm đơn giản trong WEKA
 
-Vào tab `Associate`, chọn:
+Trong tab `Preprocess`, sau khi chỉ giữ thuộc tính rule:
 
 ```text
-weka.associations.Apriori
+weka.filters.unsupervised.attribute.Discretize
 ```
 
 Cấu hình khởi đầu:
 
 ```text
-lowerBoundMinSupport: 0.01
-minMetric: 0.6
-metricType: Confidence
-numRules: 50
+bins: 5
+useEqualFrequency: True
 ```
 
-Sau đó thử:
+Áp dụng cho các cột numeric:
+
+```text
+motion_magnitude_mean
+motion_density
+brightness_mean
+brightness_delta
+foreground_ratio nếu có giữ
+motion_magnitude_std nếu có giữ
+```
+
+Nếu `cluster_id` đang là numeric, chuyển nó sang nominal hoặc tạo lại dưới dạng chuỗi `C0..C4`.
+
+Lưu:
+
+```text
+prepared/ucsd_ped2_train_rules_k5_discretized.arff
+```
+
+### 16.3. Cách diễn giải bin
+
+Sau khi `Discretize`, WEKA có thể tạo khoảng như:
+
+```text
+motion_density='(-inf-0.002]'
+motion_density='(0.002-0.015]'
+motion_density='(0.015-inf)'
+```
+
+Trong báo cáo, diễn giải lại:
+
+```text
+motion_density bin thấp nhất  -> density=low
+motion_density bin giữa       -> density=medium
+motion_density bin cao nhất   -> density=high
+motion_magnitude bin cao nhất -> motion=very_fast hoặc motion=high
+```
+
+Không cần sửa trực tiếp tên bin trong ARFF nếu chỉ làm thực hành WEKA, nhưng phần `selected.md` nên có bản diễn giải dễ đọc.
+
+## 17. Thực hành 9 - Chạy Apriori trong WEKA 3.8.7
+
+### 17.1. Mở tab Associate
+
+Trong WEKA Explorer:
+
+1. Vào tab `Associate`.
+2. Chọn:
+
+```text
+weka.associations.Apriori
+```
+
+3. Dùng dataset đã rời rạc hóa:
+
+```text
+ucsd_ped2_train_rules_k5_discretized.arff
+```
+
+### 17.2. Cấu hình Apriori khởi đầu
+
+Cấu hình:
+
+```text
+numRules: 50
+metricType: Confidence
+minMetric: 0.6
+lowerBoundMinSupport: 0.01
+upperBoundMinSupport: 1.0
+delta: 0.05
+```
+
+Sau lần đầu, thử các ngưỡng:
 
 ```text
 support = 0.005, 0.01, 0.02
 confidence = 0.6, 0.7, 0.8
+numRules = 50 hoặc 100
 ```
 
-Kết quả cần lọc lại thủ công:
+Mỗi tổ hợp phải ghi rõ trong log. Không chọn luật chỉ vì confidence cao nếu support quá thấp hoặc luật vô nghĩa.
 
-- bỏ luật quá hiển nhiên hoặc chỉ phản ánh cấu trúc grid;
-- ưu tiên luật có `cell_id`, `motion_density`, `motion_magnitude_mean`, `cluster_id`;
-- ghi lại luật giúp giải thích hành vi normal;
-- ghi lại luật có khả năng dùng để phát hiện vi phạm trong test.
+### 17.3. Lưu kết quả
 
-### 9.5. Ví dụ luật mong muốn
+Copy output vào:
 
 ```text
-cell_id=08_05 brightness_mean=normal -> motion_density=low
-cell_id=06_08 motion_magnitude_mean=slow -> cluster_id=C1
-cluster_id=C3 motion_density=high -> brightness_delta=stable
+reports/ucsd_ped2_rules_apriori_k5.txt
 ```
 
-Các luật này chưa trực tiếp là bất thường. Chúng mô tả pattern phổ biến trong train normal. Bước anomaly scoring sau này sẽ dùng:
+Chọn lại 5 đến 10 luật tốt nhất và viết vào:
 
-- độ hiếm của token combination;
-- cluster distance;
-- mức vi phạm luật có confidence/lift cao.
+```text
+rules/ucsd_ped2_rules_k5_selected.md
+```
 
-## 10. Thí nghiệm bắt buộc
+Mỗi luật được chọn cần có:
 
-### 10.1. Experiment 1 - UCSD Ped2 global behavior KMeans
+```text
+rule_id:
+antecedent:
+consequent:
+support:
+confidence:
+lift nếu WEKA output có:
+interpretation:
+why_useful_for_anomaly_explanation:
+warning:
+```
+
+### 17.4. Tiêu chí chọn luật tốt
+
+Ưu tiên luật:
+
+- có `cell_id` hoặc `cluster_id`;
+- liên quan đến motion, density hoặc brightness;
+- có support đủ lớn để không quá hiếm;
+- có confidence đủ cao để diễn giải normal pattern;
+- không chỉ lặp lại quan hệ hiển nhiên;
+- có thể chuyển thành câu giải thích khi test bất thường.
+
+Loại luật:
+
+- chỉ nói về định danh hoặc thứ tự thời gian;
+- confidence cao nhưng support cực thấp;
+- luật do bin quá nhỏ tạo ra;
+- luật không giúp giải thích hành vi;
+- luật trùng lặp nhiều lần với nội dung gần giống nhau.
+
+## 18. Ví dụ diễn giải rule
+
+Ví dụ nếu WEKA sinh luật:
+
+```text
+cell_id=08_05 brightness_mean='normal' ==> motion_density='low'
+```
+
+Diễn giải:
+
+```text
+Trong cell 08_05, khi độ sáng ở mức bình thường, dữ liệu train normal thường có mật độ chuyển động thấp.
+Nếu test xuất hiện cell=08_05, brightness=normal nhưng motion_density=high, đây là tổ hợp đáng chú ý.
+```
+
+Ví dụ nếu có `cluster_id`:
+
+```text
+cell_id=06_08 motion_magnitude_mean='slow' ==> cluster_id=C1
+```
+
+Diễn giải:
+
+```text
+Ở cell 06_08, chuyển động chậm thường rơi vào cụm C1.
+Nếu mẫu mới có motion=slow nhưng rơi xa centroid C1 hoặc bị gán sang cụm motion cao, có thể dùng rule này để giải thích lệch mẫu.
+```
+
+Ví dụ luật cần loại:
+
+```text
+cluster_id=C1 ==> brightness_mean='bright'
+```
+
+Luật này chỉ hữu ích nếu `C1` đã được diễn giải rõ. Nếu không có `cell_id` hoặc motion token đi kèm, rule có thể quá chung và khó dùng cho cảnh báo.
+
+## 19. CLI tham khảo để tái lập ngoài Explorer
+
+WEKA Explorer là giao diện chính của SPEC 2. CLI dưới đây dùng để tái lập hoặc chạy batch khi GUI chậm. Kiểm tra lại path `weka.jar` trước khi chạy.
+
+```powershell
+$WEKA_JAR = "C:\Program Files\Weka-3-8-7\weka.jar"
+```
+
+Tạo Baseline A:
+
+```powershell
+java -Xmx8g -cp $WEKA_JAR weka.filters.unsupervised.attribute.Remove `
+  -R 11-14,23-24 -V `
+  -i src/outputs/weka/ucsd_ped2_features_train.arff `
+  -o src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/ucsd_ped2_train_behavior_k5.arff
+```
+
+Standardize:
+
+```powershell
+java -Xmx8g -cp $WEKA_JAR weka.filters.unsupervised.attribute.Standardize `
+  -i src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/ucsd_ped2_train_behavior_k5.arff `
+  -o src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/ucsd_ped2_train_behavior_k5_standardized.arff
+```
+
+Train SimpleKMeans K=5:
+
+```powershell
+java -Xmx8g -cp $WEKA_JAR weka.clusterers.SimpleKMeans `
+  -N 5 -S 10 -I 500 -P `
+  -t src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/ucsd_ped2_train_behavior_k5_standardized.arff `
+  > src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/ucsd_ped2_global_behavior_simplekmeans_k5_train.txt
+```
+
+Chạy Apriori trên dữ liệu đã rời rạc hóa:
+
+```powershell
+java -Xmx8g -cp $WEKA_JAR weka.associations.Apriori `
+  -N 50 -T 0 -C 0.6 -M 0.01 `
+  -t src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/ucsd_ped2_train_rules_k5_discretized.arff `
+  > src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/ucsd_ped2_rules_apriori_k5.txt
+```
+
+Nếu option CLI khác với GUI trong máy đang dùng, ưu tiên cấu hình hiển thị trong WEKA 3.8.7 và ghi lại option thực tế vào log.
+
+## 20. Thí nghiệm bắt buộc của SPEC 2
+
+### Experiment 1 - Global behavior KMeans K=5
 
 Input:
 
@@ -586,27 +1271,48 @@ Feature:
 11-14,23-24
 ```
 
+Filter:
+
+```text
+Remove
+Standardize
+```
+
 Algorithm:
 
 ```text
 SimpleKMeans
-K = 3, 5, 8
-Standardize = yes
+K=5
+seed=10
+maxIterations=500
 ```
 
 Kết quả cần có:
 
-- report cho từng K;
-- nhận xét cụm;
-- chọn một K hợp lý để gán test.
+- report train;
+- model `.model`;
+- cluster sizes;
+- centroid;
+- diễn giải 5 cụm;
+- nhận xét cụm motion cao/hiếm.
 
-### 10.2. Experiment 2 - UCSD Ped2 global spatio-behavior KMeans
+### Experiment 2 - Supplied test set cho global behavior K=5
 
 Input:
 
 ```text
-src/outputs/weka/ucsd_ped2_features_train.arff
+src/outputs/weka/ucsd_ped2_features_test.arff
 ```
+
+Yêu cầu:
+
+- áp dụng cùng feature set;
+- chạy supplied test set;
+- ghi phân bố cụm test;
+- so sánh với train;
+- nếu xuất được assignment thì join với metadata CSV.
+
+### Experiment 3 - Global spatio-behavior KMeans K=5
 
 Feature:
 
@@ -614,28 +1320,15 @@ Feature:
 9-14,23-24
 ```
 
-Algorithm:
-
-```text
-SimpleKMeans
-K = 3, 5, 8
-Standardize = yes
-```
-
 Mục tiêu:
 
-- so sánh với behavior-only;
-- xem thêm `cell_row`, `cell_col` có làm cụm bị chi phối bởi vị trí hay không.
+- kiểm tra ảnh hưởng của `cell_row`, `cell_col`;
+- xác định model có bị tách theo vị trí quá mạnh không;
+- so sánh với Baseline A.
 
-### 10.3. Experiment 3 - UCSD Ped2 selected per-cell KMeans
+### Experiment 4 - Selected per-cell KMeans K=5
 
-Input:
-
-```text
-src/outputs/weka/ucsd_ped2_features_train.arff
-```
-
-Cell:
+Cell tối thiểu:
 
 ```text
 04_08
@@ -644,275 +1337,239 @@ Cell:
 09_06
 ```
 
-Feature:
-
-```text
-11-14,23-24
-```
-
-Algorithm:
-
-```text
-SimpleKMeans
-K = 3, 5
-Standardize = yes
-```
-
 Mục tiêu:
 
-- kiểm tra feasibility của per-cell normal pattern;
-- xác định có cần tạo script per-cell ARFF hay không.
+- xem mỗi cell có đủ mẫu để chia 5 cụm không;
+- đọc centroid theo cell;
+- xác định per-cell KMeans có phù hợp để chuyển sang Python không.
 
-### 10.4. Experiment 4 - UCSD Ped2 EM comparison
+### Experiment 5 - Apriori trên dữ liệu đã rời rạc hóa
 
 Input:
 
 ```text
-src/outputs/weka/ucsd_ped2_features_train.arff
+ucsd_ped2 train normal
+feature rời rạc hóa
+cluster_id C0..C4 nếu đã có
 ```
 
-Feature:
+Yêu cầu:
 
-```text
-11-14,23-24
+- chạy ít nhất một cấu hình Apriori;
+- sinh tối thiểu 20 luật thô nếu dữ liệu cho phép;
+- chọn 5 đến 10 luật dễ giải thích;
+- ghi rõ support/confidence;
+- nhận xét luật nào có thể dùng làm reason trong anomaly alert.
+
+## 21. Mẫu log thực nghiệm
+
+```markdown
+## ucsd_ped2_global_behavior_simplekmeans_k5
+
+- Date:
+- WEKA version: 3.8.7
+- Input: src/outputs/weka/ucsd_ped2_features_train.arff
+- Instances: 477312
+- Original attributes: 24
+- Kept attributes: 11-14,23-24
+- Filters:
+  - Remove(attributeIndices=11-14,23-24, invertSelection=True)
+  - Standardize
+- Algorithm: SimpleKMeans
+- Parameters:
+  - numClusters=5
+  - seed=10
+  - maxIterations=500
+  - preserveInstancesOrder=True
+- Runtime:
+- Within cluster SSE:
+- Cluster sizes:
+  - C0:
+  - C1:
+  - C2:
+  - C3:
+  - C4:
+- Centroid interpretation:
+  - C0:
+  - C1:
+  - C2:
+  - C3:
+  - C4:
+- Accepted for next step: yes/no
+- Reason:
+- Output files:
 ```
 
-Algorithm:
+Mẫu log luật:
 
-```text
-EM
-Standardize = yes
+```markdown
+## ucsd_ped2_rules_discretize5_apriori_k5_s001_c06
+
+- Date:
+- WEKA version: 3.8.7
+- Input:
+- Attributes:
+- Discretize:
+  - bins=5
+  - useEqualFrequency=True
+- Apriori:
+  - lowerBoundMinSupport=0.01
+  - minMetric=0.6
+  - metricType=Confidence
+  - numRules=50
+- Raw rules count:
+- Selected rules:
+  1. rule:
+     support:
+     confidence:
+     interpretation:
+     use for anomaly explanation:
+- Rejected rule patterns:
+- Notes:
 ```
 
-Mục tiêu:
+## 22. Tiêu chí đánh giá kết quả
 
-- so sánh cluster size và ý nghĩa centroid với KMeans;
-- xem EM có tạo cụm quá nhỏ hoặc khó giải thích không.
+### 22.1. KMeans K=5 đạt yêu cầu khi
 
-### 10.5. Experiment 5 - Apriori trên feature đã rời rạc hóa
-
-Input:
-
-```text
-ucsd_ped2 train, ưu tiên bản sample nếu WEKA chạy chậm
-```
-
-Feature:
-
-```text
-cell_id
-motion_magnitude_mean
-motion_density
-brightness_mean
-brightness_delta
-cluster_id nếu có
-```
-
-Algorithm:
-
-```text
-Discretize + Apriori
-```
-
-Mục tiêu:
-
-- sinh tối thiểu 20 luật có thể diễn giải;
-- chọn 5-10 luật tốt nhất để đưa vào báo cáo phân tích.
-
-## 11. Đầu ra mong muốn
-
-Sau khi triển khai SPEC 2, cần có:
-
-```text
-src/outputs/weka_experiments/
-  spec_2_log.md
-  models/
-  reports/
-  assignments/
-  rules/
-```
-
-File log cần ghi:
-
-```text
-experiment_id
-dataset
-input_file
-filter_steps
-algorithm
-parameters
-runtime
-num_instances
-num_attributes
-cluster_sizes
-main_centroids
-observations
-accepted_or_rejected
-reason
-```
-
-Cluster assignment cần có tối thiểu:
-
-```text
-dataset
-split
-video_id
-cube_id
-start_frame_id
-end_frame_id
-center_frame_id
-cell_id
-cluster_id
-```
-
-Rule output cần có:
-
-```text
-rule_id
-antecedent
-consequent
-support
-confidence
-lift nếu có
-interpretation
-use_for_anomaly_reason
-```
-
-## 12. Quy ước đặt tên thí nghiệm
-
-Định dạng:
-
-```text
-{dataset}_{scope}_{feature_set}_{algorithm}_{params}
-```
-
-Ví dụ:
-
-```text
-ucsd_ped2_global_behavior_kmeans_k5
-ucsd_ped2_global_spatiobehavior_kmeans_k5
-ucsd_ped2_cell_08_05_behavior_kmeans_k3
-ucsd_ped2_global_behavior_em_auto
-ucsd_ped2_rules_discretize5_apriori_s001_c06
-```
-
-## 13. Tiêu chí đánh giá kết quả WEKA
-
-Một kết quả phân cụm được xem là dùng được cho bước sau nếu:
-
-- WEKA train xong không lỗi bộ nhớ;
-- cluster không bị lệch hoàn toàn vào một cụm duy nhất;
+- train UCSD Ped2 chạy xong trên WEKA 3.8.7;
+- K được đặt đúng bằng `5`;
+- có 5 centroid được ghi lại;
+- cluster size không sụp vào một cụm duy nhất;
 - centroid có thể diễn giải bằng motion/brightness;
-- cụm nhỏ có ý nghĩa như hành vi hiếm hoặc nhiễu, không chỉ là lỗi scale;
-- train/test có thể dùng cùng schema và cùng filter;
-- cluster assignment truy vết được về `video_id`, `frame_id`, `cube_id`, `cell_id`;
-- kết quả có thể chuyển thành token `cluster=Cx`.
+- phân bố test không quá lệch so với train mà không có giải thích;
+- model và report được lưu;
+- log có đủ filter, feature, seed, runtime và nhận xét.
 
-Một tập luật được xem là dùng được nếu:
+### 22.2. Per-cell KMeans đạt yêu cầu khi
 
-- luật không chỉ lặp lại quan hệ định danh vô nghĩa;
-- support không quá thấp;
-- confidence đủ cao để diễn giải normal pattern;
-- có thể chuyển thành câu giải thích dễ hiểu;
-- có thể dùng như tín hiệu phụ, không quyết định alert một mình.
+- chạy được tối thiểu 4 cell đại diện;
+- mỗi cell có report K=5 riêng;
+- có nhận xét cụm nào là motion thấp, motion cao, brightness khác biệt hoặc nhiễu;
+- ghi rõ cell nào không phù hợp với K=5 nếu cụm quá nhỏ hoặc centroid khó diễn giải.
 
-## 14. Rủi ro và giảm thiểu
+### 22.3. Apriori đạt yêu cầu khi
 
-### 14.1. WEKA thiếu bộ nhớ khi mở ARFF lớn
+- dữ liệu đầu vào là nominal hoặc đã discretize;
+- có ít nhất một lần chạy Apriori thành công;
+- chọn được 5 đến 10 luật có thể diễn giải;
+- luật được ghi với support/confidence;
+- có nhận xét luật dùng được như reason hay chỉ dùng tham khảo;
+- không xem luật là quyết định bất thường độc lập.
 
-Rủi ro: Avenue ARFF hơn 500 MB mỗi split, WEKA Explorer có thể chậm hoặc crash.
+## 23. Rủi ro và giảm thiểu
+
+### 23.1. WEKA thiếu bộ nhớ
+
+Rủi ro: ARFF lớn làm Explorer chậm hoặc crash.
 
 Giảm thiểu:
 
 - chạy UCSD Ped2 trước;
-- tăng JVM heap khi mở WEKA, ví dụ `-Xmx8g` hoặc cao hơn nếu máy đủ RAM;
-- tạo sample ARFF cho Avenue;
-- dùng WEKA CLI thay vì Explorer khi dữ liệu lớn.
+- mở WEKA bằng `-Xmx8g`;
+- không mở Avenue full ngay;
+- tạo sample ARFF nếu cần;
+- dùng CLI hoặc Python khi chạy batch.
 
-### 14.2. KMeans bị chi phối bởi thang đo brightness
+### 23.2. Standardize trên train/test trong Explorer không dùng chung thống kê
 
-Rủi ro: `brightness_mean` có giá trị lớn hơn motion feature, làm cụm chủ yếu theo độ sáng.
-
-Giảm thiểu:
-
-- luôn dùng `Standardize` trước KMeans;
-- so sánh kết quả có và không có brightness;
-- ghi rõ filter trong log.
-
-### 14.3. Cụm global không phản ánh normal pattern theo vùng
-
-Rủi ro: global clustering trộn nhiều cell, làm mất ngữ cảnh không gian.
+Rủi ro: thao tác thủ công có thể chuẩn hóa test bằng thống kê test.
 
 Giảm thiểu:
 
-- chỉ dùng global clustering như baseline kiểm tra nhanh;
-- triển khai per-cell clustering cho cell đại diện;
-- sau SPEC 2, ưu tiên script Python hoặc WEKA CLI để chạy đủ `192` cell.
+- ghi rõ đây là thực nghiệm WEKA;
+- dùng kết quả để phân tích, không dùng làm production;
+- ở SPEC 3, dùng scaler fit trên train rồi transform test bằng Python.
 
-### 14.4. Direction histogram hiện chưa có ý nghĩa
+### 23.3. K=5 không phù hợp với mọi cell
 
-Rủi ro: `direction_hist_0..7` đang bằng `0.0` với frame differencing, đưa vào model sẽ thêm cột vô ích.
-
-Giảm thiểu:
-
-- bỏ direction histogram khỏi baseline WEKA;
-- chỉ đưa lại khi pipeline feature có optical flow hoặc hướng chuyển động đáng tin cậy.
-
-### 14.5. Apriori sinh quá nhiều luật vụn
-
-Rủi ro: quá nhiều token theo cell làm support thấp và luật khó tổng quát.
+Rủi ro: cell ít chuyển động hoặc rất yên tĩnh có thể không chia được 5 cụm có ý nghĩa.
 
 Giảm thiểu:
 
-- tăng `min_support`;
-- giảm số bin rời rạc hóa;
-- chạy luật trên nhóm cell hoặc global trước;
-- chỉ dùng luật làm tín hiệu giải thích phụ.
+- vẫn thực hành K=5 để thống nhất bài làm;
+- ghi cell nào có cụm quá nhỏ;
+- ở pipeline sau, thêm `min_samples_per_cell`, threshold floor hoặc fallback.
 
-## 15. Checklist triển khai
+### 23.4. Cụm nhỏ không đồng nghĩa bất thường
 
-- [ ] Mở được `ucsd_ped2_features_train.arff` trong WEKA.
-- [ ] Kiểm tra schema và kiểu thuộc tính.
-- [ ] Tạo filter Baseline A giữ `11-14,23-24`.
-- [ ] Standardize feature cho Baseline A.
-- [ ] Chạy `SimpleKMeans` với `K=3`.
-- [ ] Chạy `SimpleKMeans` với `K=5`.
-- [ ] Chạy `SimpleKMeans` với `K=8`.
-- [ ] Ghi report và nhận xét centroid cho từng K.
-- [ ] Chọn một cấu hình KMeans để gán test set.
-- [ ] Xuất cluster assignment cho train/test.
-- [ ] Chạy Baseline B giữ `9-14,23-24`.
-- [ ] So sánh Baseline A và B.
-- [ ] Chạy per-cell KMeans cho ít nhất 4 cell đại diện.
-- [ ] Chạy EM để so sánh với KMeans.
-- [ ] Rời rạc hóa feature bằng `Discretize`.
-- [ ] Chạy Apriori trên train normal.
-- [ ] Chọn 5-10 luật dễ giải thích.
-- [ ] Ghi toàn bộ kết quả vào `src/outputs/weka_experiments/spec_2_log.md`.
-- [ ] Cập nhật `src/doc/spec_2_processed.md` sau khi thực nghiệm.
+Rủi ro: train normal vẫn có cụm motion cao hoặc hiếm, nhưng đó có thể là normal pattern ít gặp.
 
-## 16. Tiêu chí hoàn thành SPEC 2
+Giảm thiểu:
+
+- không gán nhãn bất thường chỉ dựa vào cluster size;
+- dùng distance tới centroid và percentile threshold ở SPEC sau;
+- kết hợp smoothing, rare token và rule violation.
+
+### 23.5. Apriori sinh luật quá vụn
+
+Rủi ro: nhiều `cell_id` và nhiều bin làm support thấp.
+
+Giảm thiểu:
+
+- bắt đầu với `minSupport=0.01`;
+- giảm số thuộc tính nếu luật quá nhiều;
+- dùng 3 hoặc 5 bin, không rời rạc quá mịn;
+- chọn luật có ý nghĩa giải thích, không chọn máy móc theo confidence.
+
+### 23.6. Luật chỉ phản ánh độ sáng hoặc vị trí
+
+Rủi ro: rule mining có thể sinh luật đúng nhưng không hữu ích cho anomaly.
+
+Giảm thiểu:
+
+- ưu tiên luật có motion/density/cluster;
+- loại luật chỉ mô tả brightness nếu không liên quan hành vi;
+- ghi rõ luật dùng để giải thích phụ, không thay score chính.
+
+## 24. Checklist thực hành
+
+- [ ] Xác nhận WEKA version là `3.8.7`.
+- [ ] Mở WEKA với heap đủ lớn.
+- [ ] Mở `ucsd_ped2_features_train.arff`.
+- [ ] Kiểm tra số instances và attributes.
+- [ ] Tạo Baseline A bằng `Remove` giữ `11-14,23-24`.
+- [ ] Dùng `Standardize` cho Baseline A.
+- [ ] Lưu `ucsd_ped2_train_behavior_k5_standardized.arff`.
+- [ ] Chạy `SimpleKMeans K=5` trên Baseline A.
+- [ ] Lưu model K=5.
+- [ ] Lưu report train K=5.
+- [ ] Diễn giải 5 centroid.
+- [ ] Mở `ucsd_ped2_features_test.arff`.
+- [ ] Áp dụng cùng feature set cho test.
+- [ ] Chạy supplied test set và ghi phân bố cụm.
+- [ ] Tạo Baseline B giữ `9-14,23-24`.
+- [ ] Chạy `SimpleKMeans K=5` cho Baseline B.
+- [ ] So sánh Baseline A và Baseline B.
+- [ ] Chạy per-cell KMeans K=5 cho ít nhất 4 cell.
+- [ ] Tạo dataset rule có `cell_id`, motion/density/brightness và `cluster_id` nếu có.
+- [ ] Rời rạc hóa bằng `Discretize`.
+- [ ] Chạy Apriori.
+- [ ] Chọn 5 đến 10 luật dễ giải thích.
+- [ ] Ghi toàn bộ kết quả vào `spec_2_log.md`.
+- [ ] Cập nhật `src/doc/spec_2_processed.md`.
+
+## 25. Tiêu chí hoàn thành SPEC 2
 
 SPEC 2 được xem là hoàn thành khi:
 
-- có tối thiểu một mô hình KMeans chạy thành công trên UCSD Ped2 train;
-- có so sánh `K=3`, `K=5`, `K=8`;
-- có report centroid và cluster size;
-- có cluster assignment cho UCSD Ped2 train/test;
-- có ít nhất một thử nghiệm per-cell;
-- có ít nhất một thử nghiệm Apriori trên dữ liệu đã rời rạc hóa;
-- có log thực nghiệm đủ để tái hiện thao tác;
-- có nhận xét cấu hình nào nên chuyển sang Python trong SPEC tiếp theo.
+- có bản thực hành WEKA 3.8.7 rõ ràng cho UCSD Ped2;
+- phân cụm chính dùng `SimpleKMeans` với `K=5`;
+- có report centroid và cluster size của global behavior K=5;
+- có phân bố cụm trên supplied test set;
+- có ít nhất một phân tích spatio-behavior K=5;
+- có ít nhất bốn thử nghiệm per-cell K=5 hoặc ghi rõ lý do không thể thao tác trong WEKA;
+- có ít nhất một lần chạy Apriori trên dữ liệu đã rời rạc hóa;
+- có 5 đến 10 luật được chọn và diễn giải;
+- có log thực nghiệm đủ để tái hiện;
+- có nhận xét cấu hình nào nên chuyển sang Python ở SPEC 3 và SPEC 5.
 
-## 17. Hướng mở rộng sau SPEC 2
+## 26. Hướng chuyển sang các spec sau
 
-Sau khi hoàn thành SPEC 2, các bước tiếp theo nên là:
+Sau SPEC 2:
 
-- viết script Python train per-cell MiniBatchKMeans dựa trên kết quả WEKA;
-- tính distance tới centroid gần nhất;
-- chọn threshold theo percentile train;
-- sinh `cluster=Cx` token cho mỗi feature row;
-- kết hợp cluster distance, temporal change, rare token và rule violation thành anomaly score;
-- tạo `frame_scores.csv`, `cell_scores`, `alerts.json`;
-- vẽ heatmap overlay để kiểm tra định tính;
-- đánh giá frame-level ROC-AUC/EER nếu có ground truth.
+- SPEC 3 dùng Python để train per-cell MiniBatchKMeans với `clusters_per_cell=5`;
+- SPEC 3 tính distance tới centroid gần nhất và threshold theo percentile train;
+- SPEC 5 tạo token `cluster=C0..C4`, rời rạc hóa feature và tính rare token/rule violation score;
+- SPEC 4 và SPEC 6 dùng score để vẽ heatmap và đánh giá định lượng;
+- WEKA tiếp tục đóng vai trò công cụ phân tích, không phải runtime production.

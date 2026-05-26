@@ -33,3 +33,17 @@ features:
 output:
   root: "src/outputs/preprocessed"
   weka_root: "src/outputs/weka"
+
+visualization:
+  output_root: "src/outputs/visualizations"
+  colormap: "JET"
+  alpha: 0.45
+  heatmap_normalization: "per_frame"
+  draw_grid: false
+  draw_top_cells: true
+  top_cells_per_frame: 5
+  top_frames: 30
+  min_score: 0.70
+  frame_source: "preprocessed"
+  image_format: "png"
+  video_fps: 10
