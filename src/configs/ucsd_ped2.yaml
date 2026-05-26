@@ -33,3 +33,31 @@ features:
 output:
   root: "src/outputs/preprocessed"
   weka_root: "src/outputs/weka"
+  model_root: "src/outputs/models"
+  result_root: "src/outputs/results"
+
+model:
+  type: "minibatch_kmeans"
+  clusters_per_cell: 5
+  min_samples_per_cell: 50
+  batch_size: 1024
+  max_iter: 200
+  random_state: 10
+  threshold_percentile: 99.0
+  threshold_floor: 1.0e-9
+
+scoring:
+  feature_columns:
+    - foreground_ratio
+    - motion_magnitude_mean
+    - motion_magnitude_std
+    - motion_density
+    - brightness_mean
+    - brightness_delta
+  cluster_weight: 0.80
+  temporal_weight: 0.20
+  top_k_cells: 5
+  smoothing_window: 5
+  alert_threshold_medium: 0.70
+  alert_threshold_high: 0.90
+  min_consecutive_alerts: 3
