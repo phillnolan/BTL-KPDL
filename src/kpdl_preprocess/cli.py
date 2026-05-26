@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from .pipeline import run_preprocess
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run SPEC 1 preprocessing for UCSD/CUHK Avenue.")
+    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
+    parser.add_argument("--project-root", default=".", help="Project root. Relative dataset paths are resolved here.")
+    parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed_smoke.")
+    parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
+    parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
+    parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    stats = run_preprocess(
+        config_path=args.config,
+        project_root=Path(args.project_root),
+        output_root=args.output_root,
+        split=args.split,
+        limit_videos=args.limit_videos,
+        limit_frames=args.limit_frames,
+        export_arff=args.export_arff,
+    )
+    print(json.dumps(_public_stats(stats), indent=2))
+    return 0
+
+
+def _public_stats(stats: dict) -> dict:
+    return {
+        "dataset": stats.get("dataset"),
+        "output_dir": stats.get("output_dir"),
+        "splits": stats.get("splits"),
+        "arff_outputs": stats.get("arff_outputs", []),
+    }

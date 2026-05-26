@@ -1,0 +1,35 @@
+data:
+  dataset: "avenue"
+  root: "src/dataset/CUHK-avenue"
+  train_path: "training_videos"
+  test_path: "testing_videos"
+
+video:
+  input_type: "video"
+  resize_width: 320
+  resize_height: 240
+  grayscale: true
+  blur:
+    enabled: true
+    kernel_size: 3
+  brightness_normalization:
+    enabled: false
+
+grid:
+  rows: 12
+  cols: 16
+  ignore_cells: []
+
+cube:
+  length: 5
+  stride: 1
+
+features:
+  motion_method: "frame_diff"
+  frame_diff_threshold: 15
+  direction_bins: 8
+  use_brightness: true
+
+output:
+  root: "src/outputs/preprocessed"
+  weka_root: "src/outputs/weka"

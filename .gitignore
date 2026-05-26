@@ -1,0 +1,21 @@
+# Local datasets and downloaded archives
+/New folder/
+/dataset/
+/src/dataset/
+
+# Generated preprocessing outputs
+/outputs/
+/src/outputs/
+
+# External reference papers kept outside project docs
+/*.pdf
+
+# Python runtime/cache files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
