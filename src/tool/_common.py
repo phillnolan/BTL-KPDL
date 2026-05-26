@@ -20,6 +20,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
     parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
     parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=250,
+        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
+    )
     parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
 
 
@@ -31,6 +37,7 @@ def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
         split=args.split,
         limit_videos=args.limit_videos,
         limit_frames=args.limit_frames,
+        progress_every=args.progress_every,
         export_arff=args.export_arff,
     )
     print(json.dumps(_summary(stats), indent=2, ensure_ascii=False))

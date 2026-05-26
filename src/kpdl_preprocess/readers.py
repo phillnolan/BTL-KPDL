@@ -94,10 +94,14 @@ def _iter_video(
         raise ConfigError(f"Cannot open video: {source.source_path}")
 
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    frame_count_hint = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) or None
+    safety_limit = _video_safety_limit(frame_count_hint, limit_frames)
     frame_index = 0
     try:
         while True:
             if limit_frames is not None and frame_index >= limit_frames:
+                break
+            if safety_limit is not None and frame_index >= safety_limit:
                 break
             ok, raw = cap.read()
             if not ok:
@@ -152,3 +156,11 @@ def preprocess_frame(raw: np.ndarray, config: dict) -> tuple[np.ndarray, int, in
         gray = cv2.equalizeHist(gray)
 
     return gray, original_width, original_height
+
+
+def _video_safety_limit(frame_count_hint: int | None, limit_frames: int | None) -> int | None:
+    if frame_count_hint is None or frame_count_hint <= 0:
+        return limit_frames
+    tolerance = max(100, int(frame_count_hint * 0.05))
+    guarded_limit = frame_count_hint + tolerance
+    return min(guarded_limit, limit_frames) if limit_frames is not None else guarded_limit

@@ -253,7 +253,7 @@ Module:
 - [X] Không hard-code kích thước frame gốc.
 - [X] Smoke test UCSD Ped1 train với `1` sequence và `10` frame.
 - [X] Smoke test UCSD Ped2 train/test với `1` sequence mỗi split và `10` frame.
-- [ ] Chạy full preprocess toàn bộ UCSD Ped2.
+- [X] Chạy full preprocess toàn bộ UCSD Ped2.
 - [ ] Mở rộng/chạy full UCSD Ped1.
 
 ## 7. Đánh dấu theo kế hoạch riêng cho CUHK Avenue
@@ -326,7 +326,7 @@ Chưa kiểm tra ở quy mô full:
 - [X] Chuyển dataset UCSD và Avenue vào `src/dataset`.
 - [X] Chuyển output mặc định vào `src/outputs`.
 - [X] Thêm `.gitignore` cho dataset/output/PDF/archive/cache.
-- [ ] Chạy full preprocess cho UCSD Ped2.
+- [X] Chạy full preprocess cho UCSD Ped2.
 - [ ] Chạy full preprocess cho Avenue.
 - [X] Ghi `preprocess_stats.json`.
 
@@ -387,3 +387,16 @@ python tool/preprocess_avenue.py --export-arff
 - [X] `src/dataset`
 - [X] `src/outputs`
 - [X] các PDF paper ở project root.
+
+## 14. Cập nhật 2026-05-26 - Avenue full preprocess chạy lâu
+
+Spec gốc: `src/doc/spec_1.md`
+
+- [X] Kiểm tra lại luồng `src/tool/preprocess_avenue.py`: entrypoint chỉ gọi pipeline dùng chung, nguyên nhân nằm ở đọc video/ghi feature và việc thiếu log tiến độ.
+- [X] Probe toàn bộ CUHK Avenue: 16 video train, 21 video test, tổng `30652` frame; OpenCV đọc thô toàn bộ video kết thúc bình thường trong khoảng `9.37s`, không thấy file `.avi` bị đọc vô hạn.
+- [X] Thêm `--progress-every` cho `src/tool/_common.py` và `src/kpdl_preprocess/cli.py` để in tiến độ theo video/frame khi chạy full preprocess.
+- [X] Thêm guard trong `src/kpdl_preprocess/readers.py` dựa trên `CAP_PROP_FRAME_COUNT` cộng tolerance để tránh trường hợp `VideoCapture.read()` không tự kết thúc ở video lỗi.
+- [X] Cập nhật `src/kpdl_preprocess/pipeline.py` để log start/progress/done/fail từng video và ghi `missing_frames` khi số frame đọc được thấp hơn metadata.
+- [X] Verification: `python -m compileall src\kpdl_preprocess src\tool`
+- [X] Verification: `python src\tool\preprocess_avenue.py --limit-videos 1 --limit-frames 10 --output-root src\outputs\preprocessed_fix_smoke --export-arff --progress-every 5`
+- [ ] Chưa chạy full Avenue lại trong bước này vì full dataset sẽ tạo khoảng `5.85M` dòng feature trước khi export ARFF.

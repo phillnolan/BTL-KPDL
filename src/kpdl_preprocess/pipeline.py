@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ def run_preprocess(
     split: str | None = None,
     limit_videos: int | None = None,
     limit_frames: int | None = None,
+    progress_every: int | None = None,
     export_arff: bool = False,
 ) -> dict:
     config = load_config(config_path)
@@ -74,7 +76,8 @@ def run_preprocess(
                 writer.writeheader()
                 feature_writers[split_name] = writer
 
-            for source in sources:
+            source_total = len(sources)
+            for source_index, source in enumerate(sources, start=1):
                 _process_source(
                     source=source,
                     config=config,
@@ -83,9 +86,12 @@ def run_preprocess(
                     video_writer=video_writer,
                     feature_writer=feature_writers[source.split],
                     stats=stats,
+                    source_index=source_index,
+                    source_total=source_total,
                     cube_length=cube_length,
                     cube_stride=cube_stride,
                     limit_frames=limit_frames,
+                    progress_every=progress_every,
                 )
         finally:
             for handle in feature_files.values():
@@ -122,9 +128,12 @@ def _process_source(
     video_writer: csv.DictWriter,
     feature_writer: csv.DictWriter,
     stats: dict,
+    source_index: int,
+    source_total: int,
     cube_length: int,
     cube_stride: int,
     limit_frames: int | None,
+    progress_every: int | None,
 ) -> None:
     split_stats = stats["splits"][source.split]
     split_stats["num_videos"] += 1
@@ -134,7 +143,15 @@ def _process_source(
     num_cubes = 0
     original_width = video_probe.get("original_width")
     original_height = video_probe.get("original_height")
+    expected_frames = _expected_frame_count(video_probe.get("num_frames_hint"), limit_frames)
     buffer: deque[FrameRecord] = deque(maxlen=cube_length)
+    should_log_progress = progress_every is not None and progress_every > 0
+
+    if should_log_progress:
+        _progress(
+            f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+            f"start, expected_frames={_blank_none(expected_frames)}"
+        )
 
     try:
         for frame in iter_preprocessed_frames(source, config, limit_frames=limit_frames):
@@ -159,9 +176,16 @@ def _process_source(
                         split_stats["_motion_density_sum"] += float(row["motion_density"])
                         split_stats["_brightness_sum"] += float(row["brightness_mean"])
                         split_stats["_feature_value_count"] += 1
+            if should_log_progress and num_frames % progress_every == 0:
+                _progress(
+                    f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                    f"frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+                )
 
         split_stats["num_frames"] += num_frames
         split_stats["num_cubes"] += num_cubes
+        if expected_frames is not None and num_frames < expected_frames:
+            split_stats["missing_frames"] += expected_frames - num_frames
         video_writer.writerow(
             {
                 "dataset": source.dataset,
@@ -178,6 +202,11 @@ def _process_source(
                 "error": "",
             }
         )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"done, frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+            )
     except Exception as exc:
         split_stats["failed_videos"] += 1
         video_writer.writerow(
@@ -196,6 +225,11 @@ def _process_source(
                 "error": str(exc),
             }
         )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"failed after frames={num_frames}, error={exc}"
+            )
 
 
 def _frame_manifest_row(frame: FrameRecord) -> dict[str, object]:
@@ -283,3 +317,23 @@ def _finalize_stats(stats: dict) -> None:
 
 def _blank_none(value: object) -> object:
     return "" if value is None else value
+
+
+def _expected_frame_count(num_frames_hint: object, limit_frames: int | None) -> int | None:
+    try:
+        hint = int(num_frames_hint) if num_frames_hint is not None else None
+    except (TypeError, ValueError):
+        hint = None
+    if hint is not None and hint <= 0:
+        hint = None
+    if limit_frames is not None:
+        return min(limit_frames, hint) if hint is not None else limit_frames
+    return hint
+
+
+def _progress_total(expected_frames: int | None) -> str:
+    return f"/{expected_frames}" if expected_frames is not None else ""
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)

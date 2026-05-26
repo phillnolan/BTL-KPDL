@@ -61,7 +61,6 @@ kpdl_preprocess/records.py
 kpdl_preprocess/schema.py
 kpdl_preprocess/utils.py
 preprocess.py
-README.md
 requirements.txt
 tool/__init__.py
 tool/_common.py
@@ -1372,7 +1371,7 @@ Module:
 - [X] Không hard-code kích thước frame gốc.
 - [X] Smoke test UCSD Ped1 train với `1` sequence và `10` frame.
 - [X] Smoke test UCSD Ped2 train/test với `1` sequence mỗi split và `10` frame.
-- [ ] Chạy full preprocess toàn bộ UCSD Ped2.
+- [X] Chạy full preprocess toàn bộ UCSD Ped2.
 - [ ] Mở rộng/chạy full UCSD Ped1.
 
 ## 7. Đánh dấu theo kế hoạch riêng cho CUHK Avenue
@@ -1445,7 +1444,7 @@ Chưa kiểm tra ở quy mô full:
 - [X] Chuyển dataset UCSD và Avenue vào `src/dataset`.
 - [X] Chuyển output mặc định vào `src/outputs`.
 - [X] Thêm `.gitignore` cho dataset/output/PDF/archive/cache.
-- [ ] Chạy full preprocess cho UCSD Ped2.
+- [X] Chạy full preprocess cho UCSD Ped2.
 - [ ] Chạy full preprocess cho Avenue.
 - [X] Ghi `preprocess_stats.json`.
 
@@ -1506,6 +1505,19 @@ python tool/preprocess_avenue.py --export-arff
 - [X] `src/dataset`
 - [X] `src/outputs`
 - [X] các PDF paper ở project root.
+
+## 14. Cập nhật 2026-05-26 - Avenue full preprocess chạy lâu
+
+Spec gốc: `src/doc/spec_1.md`
+
+- [X] Kiểm tra lại luồng `src/tool/preprocess_avenue.py`: entrypoint chỉ gọi pipeline dùng chung, nguyên nhân nằm ở đọc video/ghi feature và việc thiếu log tiến độ.
+- [X] Probe toàn bộ CUHK Avenue: 16 video train, 21 video test, tổng `30652` frame; OpenCV đọc thô toàn bộ video kết thúc bình thường trong khoảng `9.37s`, không thấy file `.avi` bị đọc vô hạn.
+- [X] Thêm `--progress-every` cho `src/tool/_common.py` và `src/kpdl_preprocess/cli.py` để in tiến độ theo video/frame khi chạy full preprocess.
+- [X] Thêm guard trong `src/kpdl_preprocess/readers.py` dựa trên `CAP_PROP_FRAME_COUNT` cộng tolerance để tránh trường hợp `VideoCapture.read()` không tự kết thúc ở video lỗi.
+- [X] Cập nhật `src/kpdl_preprocess/pipeline.py` để log start/progress/done/fail từng video và ghi `missing_frames` khi số frame đọc được thấp hơn metadata.
+- [X] Verification: `python -m compileall src\kpdl_preprocess src\tool`
+- [X] Verification: `python src\tool\preprocess_avenue.py --limit-videos 1 --limit-frames 10 --output-root src\outputs\preprocessed_fix_smoke --export-arff --progress-every 5`
+- [ ] Chưa chạy full Avenue lại trong bước này vì full dataset sẽ tạo khoảng `5.85M` dòng feature trước khi export ARFF.
 </file>
 
 <file path="doc/spec_1.md">
@@ -2199,6 +2211,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
     parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
     parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=250,
+        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
+    )
     parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
     return parser
 
@@ -2212,6 +2230,7 @@ def main(argv: list[str] | None = None) -> int:
         split=args.split,
         limit_videos=args.limit_videos,
         limit_frames=args.limit_frames,
+        progress_every=args.progress_every,
         export_arff=args.export_arff,
     )
     print(json.dumps(_public_stats(stats), indent=2))
@@ -2545,6 +2564,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2567,6 +2587,7 @@ def run_preprocess(
     split: str | None = None,
     limit_videos: int | None = None,
     limit_frames: int | None = None,
+    progress_every: int | None = None,
     export_arff: bool = False,
 ) -> dict:
     config = load_config(config_path)
@@ -2617,7 +2638,8 @@ def run_preprocess(
                 writer.writeheader()
                 feature_writers[split_name] = writer
 
-            for source in sources:
+            source_total = len(sources)
+            for source_index, source in enumerate(sources, start=1):
                 _process_source(
                     source=source,
                     config=config,
@@ -2626,9 +2648,12 @@ def run_preprocess(
                     video_writer=video_writer,
                     feature_writer=feature_writers[source.split],
                     stats=stats,
+                    source_index=source_index,
+                    source_total=source_total,
                     cube_length=cube_length,
                     cube_stride=cube_stride,
                     limit_frames=limit_frames,
+                    progress_every=progress_every,
                 )
         finally:
             for handle in feature_files.values():
@@ -2665,9 +2690,12 @@ def _process_source(
     video_writer: csv.DictWriter,
     feature_writer: csv.DictWriter,
     stats: dict,
+    source_index: int,
+    source_total: int,
     cube_length: int,
     cube_stride: int,
     limit_frames: int | None,
+    progress_every: int | None,
 ) -> None:
     split_stats = stats["splits"][source.split]
     split_stats["num_videos"] += 1
@@ -2677,7 +2705,15 @@ def _process_source(
     num_cubes = 0
     original_width = video_probe.get("original_width")
     original_height = video_probe.get("original_height")
+    expected_frames = _expected_frame_count(video_probe.get("num_frames_hint"), limit_frames)
     buffer: deque[FrameRecord] = deque(maxlen=cube_length)
+    should_log_progress = progress_every is not None and progress_every > 0
+
+    if should_log_progress:
+        _progress(
+            f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+            f"start, expected_frames={_blank_none(expected_frames)}"
+        )
 
     try:
         for frame in iter_preprocessed_frames(source, config, limit_frames=limit_frames):
@@ -2702,9 +2738,16 @@ def _process_source(
                         split_stats["_motion_density_sum"] += float(row["motion_density"])
                         split_stats["_brightness_sum"] += float(row["brightness_mean"])
                         split_stats["_feature_value_count"] += 1
+            if should_log_progress and num_frames % progress_every == 0:
+                _progress(
+                    f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                    f"frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+                )
 
         split_stats["num_frames"] += num_frames
         split_stats["num_cubes"] += num_cubes
+        if expected_frames is not None and num_frames < expected_frames:
+            split_stats["missing_frames"] += expected_frames - num_frames
         video_writer.writerow(
             {
                 "dataset": source.dataset,
@@ -2721,6 +2764,11 @@ def _process_source(
                 "error": "",
             }
         )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"done, frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+            )
     except Exception as exc:
         split_stats["failed_videos"] += 1
         video_writer.writerow(
@@ -2739,6 +2787,11 @@ def _process_source(
                 "error": str(exc),
             }
         )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"failed after frames={num_frames}, error={exc}"
+            )
 
 
 def _frame_manifest_row(frame: FrameRecord) -> dict[str, object]:
@@ -2826,6 +2879,26 @@ def _finalize_stats(stats: dict) -> None:
 
 def _blank_none(value: object) -> object:
     return "" if value is None else value
+
+
+def _expected_frame_count(num_frames_hint: object, limit_frames: int | None) -> int | None:
+    try:
+        hint = int(num_frames_hint) if num_frames_hint is not None else None
+    except (TypeError, ValueError):
+        hint = None
+    if hint is not None and hint <= 0:
+        hint = None
+    if limit_frames is not None:
+        return min(limit_frames, hint) if hint is not None else limit_frames
+    return hint
+
+
+def _progress_total(expected_frames: int | None) -> str:
+    return f"/{expected_frames}" if expected_frames is not None else ""
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 </file>
 
 <file path="kpdl_preprocess/readers.py">
@@ -2925,10 +2998,14 @@ def _iter_video(
         raise ConfigError(f"Cannot open video: {source.source_path}")
 
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    frame_count_hint = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) or None
+    safety_limit = _video_safety_limit(frame_count_hint, limit_frames)
     frame_index = 0
     try:
         while True:
             if limit_frames is not None and frame_index >= limit_frames:
+                break
+            if safety_limit is not None and frame_index >= safety_limit:
                 break
             ok, raw = cap.read()
             if not ok:
@@ -2983,6 +3060,14 @@ def preprocess_frame(raw: np.ndarray, config: dict) -> tuple[np.ndarray, int, in
         gray = cv2.equalizeHist(gray)
 
     return gray, original_width, original_height
+
+
+def _video_safety_limit(frame_count_hint: int | None, limit_frames: int | None) -> int | None:
+    if frame_count_hint is None or frame_count_hint <= 0:
+        return limit_frames
+    tolerance = max(100, int(frame_count_hint * 0.05))
+    guarded_limit = frame_count_hint + tolerance
+    return min(guarded_limit, limit_frames) if limit_frames is not None else guarded_limit
 </file>
 
 <file path="kpdl_preprocess/records.py">
@@ -3153,73 +3238,6 @@ if __name__ == "__main__":
     raise SystemExit(main())
 </file>
 
-<file path="README.md">
-# SPEC 1 preprocessing
-
-This folder implements the `doc/spec_1.md` preprocessing stage for UCSD Ped1/Ped2
-and CUHK Avenue.
-
-## Install
-
-```bash
-python -m pip install -r src/requirements.txt
-```
-
-## Dataset location
-
-The SPEC 1 datasets are stored under `src/dataset/`:
-
-```text
-src/dataset/
-  UCSD_Anomaly_Dataset.v1p2/
-  CUHK-avenue/
-```
-
-## Smoke test
-
-```bash
-python src/tool/preprocess_ucsd.py --ped ped2 --split train --limit-videos 1 --limit-frames 20 --output-root outputs/preprocessed_smoke --export-arff
-```
-
-```bash
-python src/tool/preprocess_avenue.py --split train --limit-videos 1 --limit-frames 20 --output-root outputs/preprocessed_smoke --export-arff
-```
-
-## Full preprocess
-
-```bash
-python src/tool/preprocess_ucsd.py --ped ped2 --export-arff
-python src/tool/preprocess_avenue.py --export-arff
-```
-
-`src/tool/preprocess_ucsd.py` handles UCSD Ped2 by default. Use `--ped ped1`
-to process UCSD Ped1 with the same output schema.
-
-Outputs follow the SPEC 1 layout:
-
-```text
-src/outputs/preprocessed/<dataset>/
-  frames_manifest.csv
-  videos_manifest.csv
-  grid.json
-  features_train.csv
-  features_test.csv
-  preprocess_stats.json
-
-src/outputs/weka/
-  <dataset>_features_train.arff
-  <dataset>_features_test.arff
-```
-
-The baseline feature extractor uses frame differencing. Direction histogram columns
-are present and set to zero in this SPEC 1 baseline, matching the note in the spec.
-
-Both dataset-specific scripts call the same common schema. UCSD frame sequences and
-CUHK Avenue videos are normalized into identical `frames_manifest.csv`,
-`videos_manifest.csv`, `features_train.csv`, `features_test.csv`, `grid.json`, and
-`preprocess_stats.json` layouts.
-</file>
-
 <file path="requirements.txt">
 numpy>=1.24
 opencv-python-headless>=4.8
@@ -3253,6 +3271,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
     parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
     parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=250,
+        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
+    )
     parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
 
 
@@ -3264,6 +3288,7 @@ def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
         split=args.split,
         limit_videos=args.limit_videos,
         limit_frames=args.limit_frames,
+        progress_every=args.progress_every,
         export_arff=args.export_arff,
     )
     print(json.dumps(_summary(stats), indent=2, ensure_ascii=False))
