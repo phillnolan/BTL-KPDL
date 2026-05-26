@@ -343,7 +343,28 @@ Chưa kiểm tra ở quy mô full:
 - [X] Kết quả tiền xử lý mặc định nằm trong `src/outputs`.
 - [X] Dataset và output không bị commit nhờ `.gitignore`.
 
-## 11. Lệnh đã dùng để kiểm thử
+## *Cài môi trường
+
+Tạo virtual environment:
+
+```powershell
+python -m venv .venv
+```
+
+Kích hoạt virtual environment trên PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Cài toàn bộ thư viện cần thiết:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+## 11. Lệnh đã dùng để kiểm thử (chỉ là bước test xem đầy đủ thư viện hoặc dataset ... chưa)
 
 ```bash
 python tool/preprocess_ucsd.py --ped ped2 --limit-videos 1 --limit-frames 10 --export-arff
@@ -357,7 +378,7 @@ python tool/preprocess_avenue.py --limit-videos 1 --limit-frames 10 --export-arf
 python tool/preprocess_ucsd.py --ped ped1 --split train --limit-videos 1 --limit-frames 10
 ```
 
-## 12. Lệnh đề xuất để hoàn tất full preprocess
+## 12. Lệnh đề xuất để hoàn tất full preprocess (chạy cái này để tiền xử lý ra folder src/outputs)
 
 ```bash
 python tool/preprocess_ucsd.py --ped ped2 --export-arff
