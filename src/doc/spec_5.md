@@ -906,4 +906,4 @@ Sau SPEC 5:
 
 - SPEC 6: đánh giá ROC-AUC/EER với ground truth UCSD và so sánh có/không có rule.
 - SPEC 7: thêm optical flow hoặc direction feature thật để token hướng chuyển động có ý nghĩa.
-- SPEC 8: tinh chỉnh threshold, smoothing và weight theo metric định lượng.
+- SPEC 8: skipped theo cập nhật ngày 2026-05-27; không mở thêm tuning/leaderboard/comparison code nếu người dùng không yêu cầu rõ.

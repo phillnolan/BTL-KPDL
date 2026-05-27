@@ -59,6 +59,8 @@ Hệ thống không cố nhận diện ngữ nghĩa phức tạp ngay từ đầ
 
 Hai trụ cột nghiên cứu của hệ thống là **phân cụm hành vi-không gian-thời gian** và **khai phá luật kết hợp**. Phân cụm cung cấp điểm lệch định lượng so với mẫu bình thường; luật kết hợp cung cấp ngữ cảnh, khả năng giải thích và tín hiệu phát hiện các tổ hợp hành vi hiếm. Trong triển khai, không nên để một luật đơn lẻ quyết định toàn bộ cảnh báo; kết quả cuối nên tổng hợp cả độ lệch cụm, độ hiếm của token và mức vi phạm luật.
 
+Cập nhật định hướng ngày 2026-05-27: các spec tiếp theo ưu tiên đi thẳng vào phân cụm, token hóa, khai phá luật, giải thích cảnh báo và artifact phục vụ báo cáo. Không thêm workflow/code mới chỉ để so sánh biến thể hoặc chứng minh một cấu hình tốt hơn cấu hình khác, trừ khi người dùng yêu cầu rõ.
+
 ---
 
 ## 2. Vấn đề cần giải quyết
@@ -549,12 +551,12 @@ else:
 - script visualize overlay heatmap lên video;
 - báo cáo FPS;
 - báo cáo AUC/EER nếu dataset có ground truth;
-- ablation giữa score có rule và không rule.
+- ghi nhận nhận xét định tính về vai trò của token/rule khi cần, không mở rộng thành workflow ablation mới.
 
 ### 7.3. Có thể mở rộng sau
 
 - Zone ngữ nghĩa do người dùng vẽ;
-- multi-scale grid/pyramid để so sánh ảnh hưởng của độ phân giải vùng;
+- multi-scale grid/pyramid nếu cần biểu diễn vùng tốt hơn;
 - thuật toán phân cụm khác như GMM, DBSCAN, K-Medoids;
 - thuật toán khai phá mẫu tuần tự nếu muốn xét thứ tự thời gian mạnh hơn luật kết hợp;
 - cập nhật model online;
@@ -645,7 +647,9 @@ Cần lưu các ví dụ:
 
 ---
 
-## 10. Thí nghiệm và Ablation
+## 10. Thí nghiệm kiểm chứng nhẹ
+
+Phần này chỉ dùng để kiểm tra pipeline có chạy ổn và có ví dụ minh họa hợp lý. Không mở thêm code so sánh/leaderboard/tuning nếu mục tiêu chính chỉ là chứng minh một biến thể tốt hơn biến thể khác.
 
 ### 10.1. Baseline bắt buộc
 
@@ -655,7 +659,7 @@ Cần lưu các ví dụ:
 4. Per-cell KMeans + token/rule explanation.
 5. Full score: cluster distance + temporal change + rare token + rule violation.
 
-### 10.2. Ablation
+### 10.2. Kiểm tra tùy chọn
 
 - Không dùng cell-specific model, chỉ dùng model toàn cục;
 - không dùng direction histogram;
@@ -666,13 +670,13 @@ Cần lưu các ví dụ:
 - thay grid size `8x6`, `16x12`, `20x15`;
 - thay cube length `5`, `10`, `15`.
 
-### 10.3. Kỳ vọng kết quả
+### 10.3. Kỳ vọng quan sát
 
-- Model theo từng cell phải tốt hơn model toàn cục;
-- smoothing phải giảm false positive;
-- rule/token có thể không tăng AUC mạnh nhưng phải tăng khả năng giải thích;
+- Model theo từng cell giúp diễn giải normal pattern theo vùng rõ hơn;
+- smoothing giúp alert ổn định hơn trong ví dụ trực quan;
+- rule/token chủ yếu tăng khả năng giải thích;
 - grid quá nhỏ dễ nhiễu, grid quá lớn dễ mất chi tiết;
-- optical flow nên phát hiện hướng tốt hơn frame differencing nhưng tốn thời gian hơn.
+- optical flow giúp token hướng có ý nghĩa hơn nhưng tốn thời gian hơn.
 
 ---
 
@@ -852,13 +856,13 @@ outputs/visualizations/ucsd_ped2/test_001_overlay.mp4
 - lưu rules;
 - tạo reason text cho alert.
 
-### Giai đoạn 5 - Tổng hợp score và ablation
+### Giai đoạn 5 - Tổng hợp score và giải thích
 
 - Thêm rare token score;
 - thêm rule violation score;
-- tối ưu trọng số;
-- so sánh với baseline không rule;
-- viết báo cáo phân tích.
+- giữ trọng số đơn giản, dễ giải thích;
+- tạo reason text dựa trên cluster distance, rare token và rule;
+- viết báo cáo phân tích định tính.
 
 ### Giai đoạn 6 - Mở rộng nghiên cứu sau MVP
 
@@ -866,7 +870,7 @@ outputs/visualizations/ucsd_ped2/test_001_overlay.mp4
 - thử 3D gradient feature;
 - thử thêm thuật toán phân cụm khác như GMM, DBSCAN, K-Medoids;
 - thử thêm biến thể luật kết hợp và ngưỡng support/confidence/lift;
-- so sánh tốc độ, khả năng giải thích và độ chính xác với KMeans baseline.
+- ghi nhận tốc độ, khả năng giải thích và độ phù hợp với pipeline hiện tại.
 
 ---
 
@@ -878,8 +882,8 @@ MVP được xem là hoàn thành khi:
 - test được trên video mới và sinh `frame_scores.csv`;
 - tạo được heatmap overlay;
 - có alert JSON với lý do cảnh báo;
-- có ít nhất 3 thí nghiệm baseline/ablation;
-- báo cáo được FPS và ít nhất một metric định lượng;
+- có các ví dụ chạy minh họa pipeline từ clustering đến rule/explanation;
+- báo cáo được FPS và metric định lượng nếu dataset/ground truth đã sẵn sàng;
 - code chạy lại được bằng config;
 - tài liệu mô tả rõ pipeline, feature, model và scoring.
 
