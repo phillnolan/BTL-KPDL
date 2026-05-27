@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-SCHEMA_VERSION = "spec_1.common.v1"
+SCHEMA_VERSION = "spec_7.common.v1"
 
 FRAME_MANIFEST_COLUMNS = [
     "dataset",

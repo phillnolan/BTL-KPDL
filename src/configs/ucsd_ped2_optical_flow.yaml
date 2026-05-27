@@ -25,16 +25,25 @@ cube:
   stride: 1
 
 features:
-  motion_method: "frame_diff"
+  motion_method: "farneback"
   frame_diff_threshold: 15
+  flow_magnitude_threshold: 0.2
   direction_bins: 8
   use_brightness: true
+  farneback:
+    pyr_scale: 0.5
+    levels: 3
+    winsize: 15
+    iterations: 3
+    poly_n: 5
+    poly_sigma: 1.2
+    flags: 0
 
 output:
-  root: "src/outputs/preprocessed"
-  weka_root: "src/outputs/weka"
-  model_root: "src/outputs/models"
-  result_root: "src/outputs/results"
+  root: "src/outputs/preprocessed_spec7_flow"
+  weka_root: "src/outputs/weka_spec7_flow"
+  model_root: "src/outputs/models_spec7_flow"
+  result_root: "src/outputs/results_spec7_flow"
 
 model:
   type: "minibatch_kmeans"
@@ -52,6 +61,14 @@ scoring:
     - motion_magnitude_mean
     - motion_magnitude_std
     - motion_density
+    - direction_hist_0
+    - direction_hist_1
+    - direction_hist_2
+    - direction_hist_3
+    - direction_hist_4
+    - direction_hist_5
+    - direction_hist_6
+    - direction_hist_7
     - brightness_mean
     - brightness_delta
   cluster_weight: 0.65
@@ -66,7 +83,7 @@ scoring:
 
 rules:
   enabled: true
-  output_root: "src/outputs/rules"
+  output_root: "src/outputs/rules_spec7_flow"
   model_dir: null
   algorithm: "bounded_apriori"
   min_support: 0.01
@@ -77,13 +94,13 @@ rules:
   include_cell_token: true
   include_cluster_token: true
   include_brightness_token: true
-  include_direction_token: false
+  include_direction_token: true
   rare_itemset_size: 3
   rare_support_floor: 0.001
   rare_score_cap: 1.0
 
 visualization:
-  output_root: "src/outputs/visualizations"
+  output_root: "src/outputs/visualizations_spec7_flow"
   colormap: "JET"
   alpha: 0.45
   heatmap_normalization: "per_frame"
@@ -95,10 +112,3 @@ visualization:
   frame_source: "preprocessed"
   image_format: "png"
   video_fps: 10
-
-evaluation:
-  output_root: "src/outputs/evaluation"
-  label_source: "auto"
-  score_columns:
-    - frame_score
-    - smoothed_frame_score

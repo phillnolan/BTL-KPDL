@@ -61,6 +61,16 @@ def _validate_config(config: dict[str, Any]) -> None:
     if int(cube.get("stride", 0)) <= 0:
         raise ConfigError("cube.stride must be a positive integer")
 
+    features = config["features"]
+    motion_method = str(features.get("motion_method", "frame_diff")).lower()
+    supported_motion_methods = {"frame_diff", "frame_difference", "farneback", "optical_flow", "flow"}
+    if motion_method not in supported_motion_methods:
+        raise ConfigError(
+            "features.motion_method must be one of: frame_diff, farneback, optical_flow"
+        )
+    if int(features.get("direction_bins", 8)) <= 0:
+        raise ConfigError("features.direction_bins must be a positive integer")
+
 
 def get_nested(config: dict[str, Any], *keys: str, default: Any = None) -> Any:
     current: Any = config

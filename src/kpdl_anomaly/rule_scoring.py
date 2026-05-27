@@ -194,6 +194,9 @@ def _rare_candidates(tokens: list[str], max_size: int) -> list[list[str]]:
         ("cell", "motion", "cluster"),
         ("cell", "density", "cluster"),
         ("cell", "brightness", "motion"),
+        ("cell", "direction", "motion"),
+        ("cell", "direction", "cluster"),
+        ("cell", "direction", "density"),
     ]
     candidates: list[list[str]] = []
     seen: set[tuple[str, ...]] = set()

@@ -207,17 +207,20 @@ def _transaction_record(row: dict[str, str], tokens: list[str]) -> dict[str, Any
 
 
 def _token_schema(config: AnomalyConfig) -> dict[str, Any]:
+    tokens = [
+        "cell",
+        "cell_row",
+        "cell_col",
+        "motion",
+        "density",
+        "brightness",
+        "brightness_delta",
+        "cluster",
+    ]
+    if config.rules.include_direction_token:
+        tokens.append("direction")
     return {
-        "tokens": [
-            "cell",
-            "cell_row",
-            "cell_col",
-            "motion",
-            "density",
-            "brightness",
-            "brightness_delta",
-            "cluster",
-        ],
+        "tokens": tokens,
         "include_cell_token": config.rules.include_cell_token,
         "include_cluster_token": config.rules.include_cluster_token,
         "include_brightness_token": config.rules.include_brightness_token,

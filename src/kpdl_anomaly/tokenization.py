@@ -22,6 +22,16 @@ TOKEN_NUMERIC_COLUMNS = [
     BRIGHTNESS_COLUMN,
     BRIGHTNESS_DELTA_COLUMN,
 ]
+DIRECTION_LABELS = (
+    "right",
+    "down_right",
+    "down",
+    "down_left",
+    "left",
+    "up_left",
+    "up",
+    "up_right",
+)
 
 
 def fit_token_bins(
@@ -207,7 +217,7 @@ def _brightness_delta_bucket(value: float | None, bins: Mapping[str, Any]) -> st
 
 def _direction_bucket(row: Mapping[str, Any]) -> str | None:
     values: list[float] = []
-    for index in range(8):
+    for index in range(len(DIRECTION_LABELS)):
         value = _float_or_none(row.get(f"direction_hist_{index}"))
         if value is None:
             return None
@@ -215,7 +225,7 @@ def _direction_bucket(row: Mapping[str, Any]) -> str | None:
     total = sum(values)
     if total <= 1.0e-12:
         return None
-    return f"bin_{int(np.argmax(np.asarray(values)))}"
+    return DIRECTION_LABELS[int(np.argmax(np.asarray(values)))]
 
 
 def _cluster_label(cluster_id: int | str | None) -> str:
