@@ -1,0 +1,92 @@
+{
+  "schema_version": "spec_10.report.v1",
+  "dataset": "ucsd_ped2",
+  "artifact_label": "smoke",
+  "generated_at": "2026-05-27T17:44:26.518406+00:00",
+  "sources": {
+    "config": "src/configs/ucsd_ped2.yaml",
+    "analysis": "src/outputs/analysis/ucsd_ped2_smoke",
+    "results": "src/outputs/results/ucsd_ped2",
+    "visualizations": "src/outputs/visualizations/ucsd_ped2",
+    "evaluation": "src/outputs/evaluation/ucsd_ped2_smoke"
+  },
+  "outputs": {
+    "generated_dir": "latex/generated/ucsd_ped2",
+    "latex_dir": "latex",
+    "manifest": "latex/generated/ucsd_ped2/report_artifacts_manifest.json"
+  },
+  "figures": [
+    {
+      "case_id": "Case 001",
+      "video_id": "Test008",
+      "frame_id": 122,
+      "source": "src/outputs/visualizations/ucsd_ped2/alerts/Test008_000006_000178_peak.png",
+      "latex_path": "latex/figures/ucsd_ped2/case_001_heatmap.png",
+      "relative_latex_path": "figures/ucsd_ped2/case_001_heatmap.png",
+      "dataset": "ucsd_ped2"
+    },
+    {
+      "case_id": "Case 002",
+      "video_id": "Test011",
+      "frame_id": 33,
+      "source": "src/outputs/visualizations/ucsd_ped2/top_frames/Test011_000033_score_0.849.png",
+      "latex_path": "latex/figures/ucsd_ped2/case_002_heatmap.png",
+      "relative_latex_path": "figures/ucsd_ped2/case_002_heatmap.png",
+      "dataset": "ucsd_ped2"
+    },
+    {
+      "case_id": "Case 003",
+      "video_id": "Test004",
+      "frame_id": 137,
+      "source": "src/outputs/visualizations/ucsd_ped2/alerts/Test004_000037_000178_peak.png",
+      "latex_path": "latex/figures/ucsd_ped2/case_003_heatmap.png",
+      "relative_latex_path": "figures/ucsd_ped2/case_003_heatmap.png",
+      "dataset": "ucsd_ped2"
+    },
+    {
+      "case_id": "Case 004",
+      "video_id": "Test002",
+      "frame_id": 154,
+      "source": "src/outputs/visualizations/ucsd_ped2/alerts/Test002_000096_000178_peak.png",
+      "latex_path": "latex/figures/ucsd_ped2/case_004_heatmap.png",
+      "relative_latex_path": "figures/ucsd_ped2/case_004_heatmap.png",
+      "dataset": "ucsd_ped2"
+    },
+    {
+      "case_id": "Case 005",
+      "video_id": "Test007",
+      "frame_id": 136,
+      "source": "src/outputs/visualizations/ucsd_ped2/alerts/Test007_000053_000178_peak.png",
+      "latex_path": "latex/figures/ucsd_ped2/case_005_heatmap.png",
+      "relative_latex_path": "figures/ucsd_ped2/case_005_heatmap.png",
+      "dataset": "ucsd_ped2"
+    }
+  ],
+  "tables": [
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/pipeline_summary.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/config_table.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/metrics_table.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/cluster_profile_table.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/rule_evidence_table.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/generated/ucsd_ped2/casebook_cases.tex"
+  ],
+  "sections": [
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/background.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/system_design.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/implementation.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/experiments.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/results_discussion.tex",
+    "C:/Users/Dell/Desktop/KPDL/Project/latex/sections/conclusion.tex"
+  ],
+  "counts": {
+    "cluster_profile_cells": 192,
+    "cluster_profiles": 960,
+    "rule_evidence": 200,
+    "cases": 5,
+    "figures": 5,
+    "metric_score_columns": 1,
+    "visualization_images": 15,
+    "scoring_stats_available": true
+  },
+  "warnings": []
+}

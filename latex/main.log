@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.5.15)  16 MAY 2026 03:37
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.5.15)  28 MAY 2026 00:44
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1147,7 +1147,7 @@ Package hyperref Info: Link coloring OFF on input line 93.
 \openout4 = `main.out'.
 
  (titlepage.tex
-<logo.jpeg, id=6, 212.4738pt x 226.2051pt>
+<logo.jpeg, id=198, 212.4738pt x 226.2051pt>
 File: logo.jpeg Graphic file (type jpg)
 <use logo.jpeg>
 Package pdftex.def Info: logo.jpeg  used on input line 29.
@@ -1181,7 +1181,7 @@ LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <10> on input line 46.
 LaTeX Font Info:    External font `lmex10' loaded for size
 (Font)              <7> on input line 46.
-<border.jpeg, id=7, 469.755pt x 656.97028pt>
+<border.jpeg, id=199, 469.755pt x 656.97028pt>
 File: border.jpeg Graphic file (type jpg)
 <use border.jpeg>
 Package pdftex.def Info: border.jpeg  used on input line 59.
@@ -1190,53 +1190,209 @@ Package pdftex.def Info: border.jpeg  used on input line 59.
 
 {C:/Users/Dell/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Program Fil
 es/MiKTeX/fonts/enc/dvips/lm/lm-t5.enc} <./border.jpeg> <./logo.jpeg>]) (main.t
-oc)
-\tf@toc=\write5
-\openout5 = `main.toc'.
-
+oc
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <12> on input line 2.
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <8> on input line 2.
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <6> on input line 2.
 
 pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has 
 been already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.102 \newpage
-               [1] (sections/project_overview.tex
+l.32 ...{V}Thuc nghiem va artifact}{10}{chapter.5}
+                                                  % [1]
+Overfull \hbox (1.2489pt too wide) detected at line 46
+\T5/lmr/bx/n/12 CH×ÌNG VII. 
+ []
+
+)
+\tf@toc=\write5
+\openout5 = `main.toc'.
+
+ [2] (sections/project_overview.tex
 Ch\uhorn \ohorn ng I.
 LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 1
 6.
 (C:\Program Files\MiKTeX\tex/latex/lm\ts1lmr.fd
 File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
-) [2
+) [3
 
-{C:/Program Files/MiKTeX/fonts/enc/dvips/lm/lm-ts1.enc}] [3]) [4] (main.aux)
+{C:/Program Files/MiKTeX/fonts/enc/dvips/lm/lm-ts1.enc}] [4]) (sections/backgro
+und.tex [5]
+Ch\uhorn \ohorn ng II.
+LaTeX Font Info:    Trying to load font information for T5+lmtt on input line 1
+3.
+(C:\Program Files\MiKTeX\tex/latex/lm\t5lmtt.fd
+File: t5lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
+)) (sections/system_design.tex
+[6
+
+]
+Ch\uhorn \ohorn ng III.
+(generated/ucsd_ped2/config_table.tex
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+[]|\T5/lmr/m/n/12 foreground_ratio, mo-tion_magnitude_mean, mo-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--17
+\T5/lmr/m/n/12 tion_magnitude_std, mo-tion_density, bright-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 21--22
+[]|\T5/lmr/m/n/12 enabled=True, sup-port=0.010, con-fi-dence=0.60,
+ []
+
+ignored error: Infinite glue shrinkage found in box being split [7
+
+])
+(generated/ucsd_ped2/pipeline_summary.tex)) (sections/implementation.tex
+[8]
+Ch\uhorn \ohorn ng IV.
+
+Underfull \hbox (badness 2538) in paragraph at lines 14--15
+[]|\T5/lmr/m/n/12 Train Mini-BatchK-Means theo cell, scaler va
+ []
+
+) (sections/experiments.tex [9
+
+]
+Ch\uhorn \ohorn ng V.
+(generated/ucsd_ped2/metrics_table.tex)) (sections/results_discussion.tex
+[10
+
+]
+Ch\uhorn \ohorn ng VI.
+(generated/ucsd_ped2/cluster_profile_table.tex
+Underfull \hbox (badness 10000) in paragraph at lines 10--10
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 11--11
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 12--12
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 13--13
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 14--14
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 15--15
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 16--16
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 17--17
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 18--18
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 19--19
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 20--20
+[]|\T5/lmr/m/n/12 high,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 21--21
+[]|\T5/lmr/m/n/12 high,
+ []
+
+ignored error: Infinite glue shrinkage found in box being split [11
+
+])
+(generated/ucsd_ped2/rule_evidence_table.tex)
+(generated/ucsd_ped2/casebook_cases.tex
+<figures/ucsd_ped2/case_001_heatmap.png, id=307, 321.2pt x 240.9pt>
+File: figures/ucsd_ped2/case_001_heatmap.png Graphic file (type png)
+<use figures/ucsd_ped2/case_001_heatmap.png>
+Package pdftex.def Info: figures/ucsd_ped2/case_001_heatmap.png  used on input 
+line 12.
+(pdftex.def)             Requested size: 373.3035pt x 279.98453pt.
+ [12] [13 <./figures/ucsd_ped2/case_001_heatmap.png (PNG copy)>]
+<figures/ucsd_ped2/case_002_heatmap.png, id=319, 321.2pt x 240.9pt>
+File: figures/ucsd_ped2/case_002_heatmap.png Graphic file (type png)
+<use figures/ucsd_ped2/case_002_heatmap.png>
+Package pdftex.def Info: figures/ucsd_ped2/case_002_heatmap.png  used on input 
+line 43.
+(pdftex.def)             Requested size: 373.3035pt x 279.98453pt.
+ [14 <./figures/ucsd_ped2/case_002_heatmap.png (PNG copy)>]
+<figures/ucsd_ped2/case_003_heatmap.png, id=325, 321.2pt x 240.9pt>
+File: figures/ucsd_ped2/case_003_heatmap.png Graphic file (type png)
+<use figures/ucsd_ped2/case_003_heatmap.png>
+Package pdftex.def Info: figures/ucsd_ped2/case_003_heatmap.png  used on input 
+line 74.
+(pdftex.def)             Requested size: 373.3035pt x 279.98453pt.
+ [15] [16 <./figures/ucsd_ped2/case_003_heatmap.png (PNG copy)>]
+<figures/ucsd_ped2/case_004_heatmap.png, id=335, 321.2pt x 240.9pt>
+File: figures/ucsd_ped2/case_004_heatmap.png Graphic file (type png)
+<use figures/ucsd_ped2/case_004_heatmap.png>
+Package pdftex.def Info: figures/ucsd_ped2/case_004_heatmap.png  used on input 
+line 105.
+(pdftex.def)             Requested size: 373.3035pt x 279.98453pt.
+ [17 <./figures/ucsd_ped2/case_004_heatmap.png (PNG copy)>]
+<figures/ucsd_ped2/case_005_heatmap.png, id=341, 321.2pt x 240.9pt>
+File: figures/ucsd_ped2/case_005_heatmap.png Graphic file (type png)
+<use figures/ucsd_ped2/case_005_heatmap.png>
+Package pdftex.def Info: figures/ucsd_ped2/case_005_heatmap.png  used on input 
+line 136.
+(pdftex.def)             Requested size: 373.3035pt x 279.98453pt.
+ [18] [19 <./figures/ucsd_ped2/case_005_heatmap.png (PNG copy)>])) (sections/co
+nclusion.tex [20]
+Ch\uhorn \ohorn ng VII.
+) [21
+
+] (main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
  ***********
-
-
-Package rerunfilecheck Warning: File `main.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `main.out':
-(rerunfilecheck)             Before: D41D8CD98F00B204E9800998ECF8427E;0
-(rerunfilecheck)             After:  6C0E70668525064DB358B0CAAF7DFA7E;3575.
+Package rerunfilecheck Info: File `main.out' has not changed.
+(rerunfilecheck)             Checksum: FE3DD86FCE6D0768FEB13D232DD7CA19;9206.
  ) 
 Here is how much of TeX's memory you used:
- 24815 strings out of 467871
- 471702 string characters out of 5428446
- 878870 words of memory out of 5000000
- 53252 multiletter control sequences out of 15000+600000
- 691591 words of font info for 63 fonts, out of 8000000 for 9000
+ 25194 strings out of 467871
+ 480238 string characters out of 5428446
+ 893239 words of memory out of 5000000
+ 53525 multiletter control sequences out of 15000+600000
+ 699757 words of font info for 72 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 84i,12n,104p,408b,712s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 84i,12n,104p,465b,791s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Program Files/MiKTeX/fonts/type1/public/lm/lmbx12.pfb><C:/Program Files/M
 iKTeX/fonts/type1/public/lm/lmr12.pfb><C:/Program Files/MiKTeX/fonts/type1/publ
-ic/lm/lmri12.pfb>
-Output written on main.pdf (5 pages, 252711 bytes).
+ic/lm/lmri12.pfb><C:/Program Files/MiKTeX/fonts/type1/public/lm/lmtt12.pfb>
+Output written on main.pdf (22 pages, 758214 bytes).
 PDF statistics:
- 73 PDF objects out of 1000 (max. 8388607)
- 23 named destinations out of 1000 (max. 500000)
- 23 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 402 PDF objects out of 1000 (max. 8388607)
+ 81 named destinations out of 1000 (max. 500000)
+ 432 words of extra memory for PDF output out of 10000 (max. 10000000)
 

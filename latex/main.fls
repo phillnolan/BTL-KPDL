@@ -1,6 +1,6 @@
-PWD c:\Users\Dell\Desktop\KPDL\Project\latex
+PWD C:\Users\Dell\Desktop\KPDL\Project\latex
 INPUT C:\Users\Dell\AppData\Local\MiKTeX\miktex\data\le\pdftex\pdflatex.fmt
-INPUT c:\Users\Dell\Desktop\KPDL\Project\latex\main.tex
+INPUT main.tex
 OUTPUT main.log
 INPUT C:\Program Files\MiKTeX\tex\latex\extsizes\extreport.cls
 INPUT C:\Program Files\MiKTeX\tex\latex\extsizes\extreport.cls
@@ -273,10 +273,10 @@ INPUT .\main.out
 INPUT .\main.out
 INPUT main.out
 INPUT main.out
+OUTPUT main.pdf
 INPUT .\main.out
 INPUT .\main.out
 OUTPUT main.out
-OUTPUT main.pdf
 INPUT .\titlepage.tex
 INPUT .\titlepage.tex
 INPUT titlepage.tex
@@ -329,7 +329,99 @@ INPUT .\main.toc
 INPUT .\main.toc
 INPUT main.toc
 INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\rm-lmr12.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\rm-lmr8.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\rm-lmr6.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmmi12.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmmi8.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmmi6.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmsy10.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmsy8.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\lmsy6.tfm
 OUTPUT main.toc
+INPUT .\sections\project_overview.tex
+INPUT .\sections\project_overview.tex
+INPUT sections\project_overview.tex
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\t5-lmr17.tfm
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\ts1lmr.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\ts1lmr.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\ts1lmr.fd
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\ts1-lmr12.tfm
+INPUT C:\Program Files\MiKTeX\fonts\enc\dvips\lm\lm-ts1.enc
+INPUT .\sections\background.tex
+INPUT .\sections\background.tex
+INPUT sections\background.tex
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\t5lmtt.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\t5lmtt.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\lm\t5lmtt.fd
+INPUT C:\Program Files\MiKTeX\fonts\tfm\public\lm\t5-lmtt12.tfm
+INPUT .\sections\system_design.tex
+INPUT .\sections\system_design.tex
+INPUT sections\system_design.tex
+INPUT .\generated\ucsd_ped2\config_table.tex
+INPUT .\generated\ucsd_ped2\config_table.tex
+INPUT generated\ucsd_ped2\config_table.tex
+INPUT .\generated\ucsd_ped2\pipeline_summary.tex
+INPUT .\generated\ucsd_ped2\pipeline_summary.tex
+INPUT generated\ucsd_ped2\pipeline_summary.tex
+INPUT .\sections\implementation.tex
+INPUT .\sections\implementation.tex
+INPUT sections\implementation.tex
+INPUT .\sections\experiments.tex
+INPUT .\sections\experiments.tex
+INPUT sections\experiments.tex
+INPUT .\generated\ucsd_ped2\metrics_table.tex
+INPUT .\generated\ucsd_ped2\metrics_table.tex
+INPUT generated\ucsd_ped2\metrics_table.tex
+INPUT .\sections\results_discussion.tex
+INPUT .\sections\results_discussion.tex
+INPUT sections\results_discussion.tex
+INPUT .\generated\ucsd_ped2\cluster_profile_table.tex
+INPUT .\generated\ucsd_ped2\cluster_profile_table.tex
+INPUT generated\ucsd_ped2\cluster_profile_table.tex
+INPUT .\generated\ucsd_ped2\rule_evidence_table.tex
+INPUT .\generated\ucsd_ped2\rule_evidence_table.tex
+INPUT generated\ucsd_ped2\rule_evidence_table.tex
+INPUT .\generated\ucsd_ped2\casebook_cases.tex
+INPUT .\generated\ucsd_ped2\casebook_cases.tex
+INPUT generated\ucsd_ped2\casebook_cases.tex
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_001_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_002_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_003_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_004_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\figures\ucsd_ped2\case_005_heatmap.png
+INPUT .\sections\conclusion.tex
+INPUT .\sections\conclusion.tex
+INPUT sections\conclusion.tex
 INPUT main.aux
 INPUT .\main.out
 INPUT .\main.out
@@ -339,3 +431,5 @@ INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmr12.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmr12.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmri12.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmri12.pfb
+INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmtt12.pfb
+INPUT C:\Program Files\MiKTeX\fonts\type1\public\lm\lmtt12.pfb
