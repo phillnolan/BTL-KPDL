@@ -67,19 +67,25 @@ src/doc/spec_3_processed.md
 src/doc/spec_3.md
 src/doc/spec_4_processed.md
 src/doc/spec_4.md
+src/doc/spec_5_processed.md
+src/doc/spec_5.md
 src/kpdl_anomaly/__init__.py
 src/kpdl_anomaly/alerts.py
+src/kpdl_anomaly/association.py
 src/kpdl_anomaly/config.py
 src/kpdl_anomaly/feature_selection.py
 src/kpdl_anomaly/frames.py
 src/kpdl_anomaly/io.py
 src/kpdl_anomaly/modeling.py
 src/kpdl_anomaly/qualitative.py
+src/kpdl_anomaly/rule_model.py
+src/kpdl_anomaly/rule_scoring.py
 src/kpdl_anomaly/schema.py
 src/kpdl_anomaly/scoring.py
 src/kpdl_anomaly/smoothing.py
 src/kpdl_anomaly/test.py
 src/kpdl_anomaly/thresholds.py
+src/kpdl_anomaly/tokenization.py
 src/kpdl_anomaly/train.py
 src/kpdl_anomaly/visualization.py
 src/kpdl_preprocess/__init__.py
@@ -96,9 +102,9 @@ src/kpdl_preprocess/records.py
 src/kpdl_preprocess/schema.py
 src/kpdl_preprocess/utils.py
 src/preprocess.py
-src/README.md
 src/repomix-output.xml
 src/requirements.txt
+src/rules.py
 src/test.py
 src/tool/__init__.py
 src/tool/_common.py
@@ -110,6 +116,2060 @@ src/visualize.py
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/doc/spec_5_processed.md">
+# SPEC 5 Processed - Tokenization, rare token score and association rules
+
+Original spec path: `src/doc/spec_5.md`
+
+Date/time processed: 2026-05-27 11:28:44 +07:00
+
+## Summary
+
+Implemented SPEC 5 in the Python pipeline. The project now trains a token/rule artifact from SPEC 3 features and models, scores test rows with `rare_token_score` and `rule_violation_score`, appends token/rule columns only when rule scoring is active, and preserves the old SPEC 3 `cell_scores.csv` schema when rules are disabled.
+
+Primary verified dataset: `ucsd_ped2`.
+
+## Checklist
+
+- [Done] Read PRD, root `repomix-output.xml`, and `src/doc/spec_5.md`.
+- [Done] Add `rules` config to dataset YAML files.
+- [Done] Update `AnomalyConfig` with rule settings and score weights.
+- [Done] Add `src/kpdl_anomaly/tokenization.py`.
+- [Done] Fit token bin thresholds from train normal rows.
+- [Done] Tokenize feature rows into stable transactions.
+- [Done] Assign `cluster=Cx` to train rows from SPEC 3 scaler/model artifacts.
+- [Done] Add `src/kpdl_anomaly/association.py`.
+- [Done] Count itemset support for bounded itemsets of size `1..3`.
+- [Done] Generate bounded Apriori association rules by support/confidence/lift.
+- [Done] Add `src/kpdl_anomaly/rule_model.py`.
+- [Done] Write `rule_manifest.json`, `token_bins.json`, `itemsets.json`, `rules.json`, `token_stats.json`, and `selected_rules.md`.
+- [Done] Add CLI `src/rules.py`.
+- [Done] Add `src/kpdl_anomaly/rule_scoring.py`.
+- [Done] Compute `rare_token_score`.
+- [Done] Compute `rule_violation_score`.
+- [Done] Extend `src/kpdl_anomaly/scoring.py` to use rules when active.
+- [Done] Extend score CSV writer with token/rule columns when active.
+- [Done] Extend alert reasons with token/rule reasons.
+- [Done] Add `src/test.py` support for `--rules` and `--no-rules`.
+- [Done] Smoke train token/rule artifact.
+- [Done] Smoke scoring with token/rule artifact.
+- [Done] Smoke fallback scoring with `--no-rules`.
+- [Done] Full UCSD Ped2 token/rule training.
+- [Done] Full UCSD Ped2 scoring with rules.
+- [Done] Visualization smoke for SPEC 4 compatibility.
+- [Done] Refresh `repomix-output.xml` after final checks.
+
+## Files Changed
+
+- `src/configs/ucsd_ped2.yaml`
+- `src/configs/ucsd_ped1.yaml`
+- `src/configs/avenue.yaml`
+- `src/kpdl_anomaly/config.py`
+- `src/kpdl_anomaly/schema.py`
+- `src/kpdl_anomaly/tokenization.py`
+- `src/kpdl_anomaly/association.py`
+- `src/kpdl_anomaly/rule_model.py`
+- `src/kpdl_anomaly/rule_scoring.py`
+- `src/kpdl_anomaly/scoring.py`
+- `src/kpdl_anomaly/alerts.py`
+- `src/kpdl_anomaly/test.py`
+- `src/rules.py`
+- `src/doc/spec_5_processed.md`
+
+## Verification Evidence
+
+- [Done] `python -m compileall src\kpdl_anomaly src\rules.py src\test.py`
+  - Result: compile completed successfully.
+- [Done] `python src\rules.py --config src\configs\ucsd_ped2.yaml --model src\outputs\models\ucsd_ped2 --output-dir src\outputs\rules\ucsd_ped2_smoke --limit-rows 50000`
+  - Result: `50000` transactions, `12877` itemsets, `200` rules.
+- [Done] `python src\test.py --config src\configs\ucsd_ped2.yaml --model src\outputs\models\ucsd_ped2 --rules src\outputs\rules\ucsd_ped2_smoke --result-root src\outputs\results_smoke_rules --limit-rows 50000`
+  - Result: `50000` rows scored, `261` frames, `1` alert, rules active.
+- [Done] `python src\test.py --config src\configs\ucsd_ped2.yaml --model src\outputs\models\ucsd_ped2 --no-rules --result-root src\outputs\results_smoke_no_rules --limit-rows 50000`
+  - Result: `50000` rows scored, SPEC 3 score columns only, first row score remains `0.39380409`.
+- [Done] `python src\rules.py --config src\configs\ucsd_ped2.yaml --model src\outputs\models\ucsd_ped2`
+  - Result: `477312` transactions, `13932` itemsets, `200` rules, no warnings.
+- [Done] `python src\test.py --config src\configs\ucsd_ped2.yaml --model src\outputs\models\ucsd_ped2 --rules src\outputs\rules\ucsd_ped2`
+  - Result: `376704` rows scored, `1962` frames, severity `none=844`, `medium=1118`, `high=0`, alerts `17`, rules active.
+- [Done] Range check on full `cell_scores.csv`
+  - Result: `376704` rows, `0` out-of-range values; `cell_score=[0.0897185, 0.9734689]`, `rare_token_score=[0.83176622, 1.0]`, `rule_violation_score=[0.0, 1.0]`.
+- [Done] Alert reason check
+  - Result: `alerts.json` includes token support reasons and rule violation reasons.
+- [Done] Support/confidence sweep smoke
+  - `min_support=0.005`, `min_confidence=0.60`, `limit_rows=50000`: `12877` itemsets, `200` rules.
+  - `min_support=0.010`, `min_confidence=0.60`, `limit_rows=50000`: `12877` itemsets, `200` rules.
+  - `min_support=0.020`, `min_confidence=0.70`, `limit_rows=50000`: `12877` itemsets, `200` rules.
+- [Done] `python src\visualize.py --config src\configs\ucsd_ped2.yaml --top-frames 5 --output-dir src\outputs\visualizations\ucsd_ped2_spec5_top`
+  - Result: 5 images written, 0 missing frames, 0 missing cell score frames.
+- [Done] `python src\visualize.py --config src\configs\ucsd_ped2.yaml --alerts --limit-frames 5 --output-dir src\outputs\visualizations\ucsd_ped2_spec5_alerts`
+  - Result: 5 images written, 0 missing frames, 0 missing cell score frames.
+- [Done] Automated OpenCV visualization validation
+  - Result: 10 images checked, 0 missing, 0 blank.
+- [Done] `repomix.cmd`
+  - Result: Repomix v1.14.0 packed 69 files successfully and wrote `repomix-output.xml`.
+
+## Generated Artifacts
+
+- `src/outputs/rules/ucsd_ped2/rule_manifest.json`
+- `src/outputs/rules/ucsd_ped2/token_bins.json`
+- `src/outputs/rules/ucsd_ped2/itemsets.json`
+- `src/outputs/rules/ucsd_ped2/rules.json`
+- `src/outputs/rules/ucsd_ped2/token_stats.json`
+- `src/outputs/rules/ucsd_ped2/selected_rules.md`
+- `src/outputs/results/ucsd_ped2/cell_scores.csv`
+- `src/outputs/results/ucsd_ped2/frame_scores.csv`
+- `src/outputs/results/ucsd_ped2/alerts.json`
+- `src/outputs/results/ucsd_ped2/scoring_stats.json`
+
+## Remaining Risks
+
+- Full support/confidence sweep was not run for all three settings; the sweep evidence is smoke-sized at `50000` rows to keep runtime controlled.
+- Direction tokens remain disabled because current preprocessing uses frame differencing, as requested by SPEC 5.
+- Rare token score is intentionally a weak weighted signal, but many UCSD Ped2 test cell/cube combinations are rare under the chosen cell-specific itemsets; future metric work should tune support thresholds and weights.
+</file>
+
+<file path="src/doc/spec_5.md">
+# SPEC 5 - Tokenization, rare token score và association rules trong Python
+
+## 1. Mục tiêu
+
+SPEC 5 mô tả kế hoạch triển khai lớp token hóa và khai phá luật kết hợp trong Python sau khi SPEC 3 đã có anomaly score baseline và SPEC 4 đã có heatmap overlay.
+
+Mục tiêu chính:
+
+- biến feature liên tục và kết quả cụm `nearest_cluster` thành token dễ diễn giải;
+- học phân phối token/itemset từ dữ liệu train normal;
+- khai phá association rules từ train normal;
+- tính `rare_token_score` và `rule_violation_score` cho từng cell/cube test;
+- mở rộng công thức anomaly score theo PRD:
+
+```text
+score = 0.65 * cluster_distance_score
+      + 0.20 * temporal_change_score
+      + 0.10 * rare_token_score
+      + 0.05 * rule_violation_score
+```
+
+SPEC 5 không thay thế cluster/distance baseline của SPEC 3. Token/rule chỉ là tín hiệu phụ để tăng khả năng giải thích và hỗ trợ phát hiện tổ hợp hành vi hiếm.
+
+## 2. Liên hệ với PRD và các spec trước
+
+Theo PRD, hệ thống có hai trụ cột:
+
+- phân cụm hành vi-không gian-thời gian;
+- khai phá luật kết hợp để giải thích quan hệ giữa vùng, chuyển động, mật độ, độ sáng và cụm hành vi.
+
+SPEC 1 đã sinh feature CSV/ARFF. SPEC 2 mô tả thực hành WEKA với KMeans K=5 và Apriori. SPEC 3 đã triển khai Python per-cell KMeans K=5, sinh `cell_scores.csv`, `frame_scores.csv` và `alerts.json`. SPEC 4 đã hiển thị score bằng heatmap overlay.
+
+SPEC 5 chuyển phần token/rule từ ý tưởng và thực hành thủ công sang pipeline Python chạy lại được bằng config.
+
+Ghi chú trạng thái repo hiện tại:
+
+- `src/doc/spec_5.md` chưa tồn tại trước tài liệu này.
+- SPEC 2 processed hiện là tracker thực hành trống, chưa có output WEKA hoàn chỉnh.
+- SPEC 5 vẫn có thể triển khai vì cluster assignment có thể lấy trực tiếp từ model Python của SPEC 3.
+
+## 3. Trạng thái đầu vào hiện có
+
+Dataset ưu tiên:
+
+```text
+ucsd_ped2
+```
+
+Artifact đầu vào chính:
+
+```text
+src/outputs/preprocessed/ucsd_ped2/
+  features_train.csv
+  features_test.csv
+  grid.json
+  preprocess_stats.json
+
+src/outputs/models/ucsd_ped2/
+  model_manifest.json
+  cell_models.joblib
+  cell_scalers.joblib
+  thresholds.json
+  feature_stats.json
+
+src/outputs/results/ucsd_ped2/
+  cell_scores.csv
+  frame_scores.csv
+  alerts.json
+  scoring_stats.json
+```
+
+Feature baseline đang dùng:
+
+```text
+foreground_ratio
+motion_magnitude_mean
+motion_magnitude_std
+motion_density
+brightness_mean
+brightness_delta
+```
+
+Các cột `direction_hist_0..7` chưa dùng trong SPEC 5 MVP vì pipeline tiền xử lý hiện dùng `frame_diff`, direction histogram đang không mang thông tin hướng đáng tin cậy. Hướng chuyển động thật nên để SPEC sau cùng optical flow/Farneback.
+
+## 4. Phạm vi
+
+### 4.1. Nằm trong phạm vi
+
+- Đọc feature train/test và model SPEC 3.
+- Gán `cluster_id=C0..C4` cho train bằng model/scaler đã lưu.
+- Dùng `nearest_cluster` từ scoring test hoặc tự gán khi cần.
+- Fit bin/token thresholds từ train normal.
+- Token hóa motion, density, brightness, brightness delta, cell và cluster.
+- Tạo transaction cho từng feature row.
+- Đếm support của item và itemset trong train normal.
+- Sinh association rules giới hạn kích thước để chạy được trên UCSD Ped2.
+- Tính rare-token score và rule-violation score cho test.
+- Ghi output token/rule artifact.
+- Mở rộng scoring để tạo `cell_scores.csv` có thêm token/rule columns khi `rules.enabled=true`.
+- Mở rộng `alerts.json` reason bằng token/rule reason.
+- Bảo toàn khả năng chạy SPEC 3 cũ khi rules disabled.
+
+### 4.2. Ngoài phạm vi
+
+- Không triển khai FP-Growth tối ưu cho dữ liệu rất lớn trong MVP đầu tiên.
+- Không dùng WEKA làm runtime production.
+- Không dùng direction token thật khi chưa có optical flow.
+- Không đánh giá ROC-AUC/EER, phần đó để SPEC 6.
+- Không làm dashboard.
+- Không thay đổi heatmap rendering của SPEC 4, chỉ bảo đảm schema mới không làm hỏng visualization.
+
+## 5. Nguyên tắc thiết kế
+
+- Token/rule là tín hiệu phụ, không quyết định toàn bộ alert.
+- Binning phải học từ train normal, sau đó áp dụng nguyên trạng cho test.
+- Không tạo token quá mịn khiến luật bị vụn.
+- Các rule phải có support/confidence/lift đủ rõ và có thể diễn giải.
+- Nếu rule artifact thiếu hoặc disabled, pipeline scoring phải quay về công thức SPEC 3.
+- Output phải truy vết được về `dataset`, `video_id`, `cube_id`, `center_frame_id`, `cell_id`.
+- Giữ dependency nhẹ. MVP nên dùng Apriori giới hạn tự triển khai thay vì thêm dependency nặng nếu không cần.
+
+## 6. Kiến trúc module đề xuất
+
+Bổ sung các file:
+
+```text
+src/kpdl_anomaly/
+  tokenization.py
+  association.py
+  rule_model.py
+  rule_scoring.py
+
+src/rules.py
+```
+
+Vai trò:
+
+```text
+tokenization.py:
+  fit ngưỡng rời rạc hóa từ train
+  chuyển feature row + cluster_id thành token
+  tạo transaction ổn định
+
+association.py:
+  đếm support itemset
+  sinh association rules dạng bounded Apriori
+  lọc rule theo support/confidence/lift
+
+rule_model.py:
+  train token/rule model từ features_train.csv và model SPEC 3
+  lưu token bins, itemset support, rules, manifest
+
+rule_scoring.py:
+  load rule artifact
+  tính rare_token_score
+  tính rule_violation_score
+  sinh reason text cho token/rule
+
+src/rules.py:
+  CLI entrypoint cho train token/rule artifact
+```
+
+Các file cần cập nhật:
+
+```text
+src/kpdl_anomaly/config.py
+src/kpdl_anomaly/schema.py
+src/kpdl_anomaly/scoring.py
+src/kpdl_anomaly/alerts.py
+src/kpdl_anomaly/test.py
+src/configs/ucsd_ped2.yaml
+src/configs/ucsd_ped1.yaml
+src/configs/avenue.yaml
+src/requirements.txt nếu cần
+```
+
+## 7. Cấu hình đề xuất
+
+Bổ sung mục `rules` vào YAML dataset:
+
+```yaml
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+```
+
+Cập nhật `scoring` khi rules enabled:
+
+```yaml
+scoring:
+  cluster_weight: 0.65
+  temporal_weight: 0.20
+  rare_token_weight: 0.10
+  rule_weight: 0.05
+```
+
+Khi `rules.enabled=false` hoặc không có rule artifact, giữ công thức SPEC 3:
+
+```yaml
+scoring:
+  cluster_weight: 0.80
+  temporal_weight: 0.20
+```
+
+## 8. Token schema MVP
+
+Mỗi feature row test/train sinh một transaction gồm các token:
+
+```text
+cell=08_05
+cell_row=08
+cell_col=05
+motion=still|slow|medium|fast|very_fast
+density=low|medium|high
+brightness=dark|normal|bright
+brightness_delta=stable|changing
+cluster=C0|C1|C2|C3|C4
+```
+
+Token có thể thêm sau:
+
+```text
+foreground=low|medium|high
+motion_std=low|medium|high
+time_bucket=morning|day|evening|night
+direction=...
+```
+
+Không đưa các token sau vào MVP:
+
+```text
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+```
+
+Lý do: các token định danh/thứ tự dễ tạo luật giả, không mô tả hành vi bình thường tổng quát.
+
+## 9. Fit bin từ train normal
+
+### 9.1. Motion magnitude
+
+Dùng quantile train của `motion_magnitude_mean`:
+
+```text
+still      <= q20
+slow       <= q40
+medium     <= q60
+fast       <= q80
+very_fast  >  q80
+```
+
+Nếu phân phối quá nhiều zero, dùng fallback:
+
+```text
+still nếu motion_magnitude_mean <= epsilon
+slow/medium/fast/very_fast theo quantile của phần > epsilon
+```
+
+### 9.2. Motion density
+
+Dùng 3 bin:
+
+```text
+low     <= q33
+medium  <= q66
+high    >  q66
+```
+
+### 9.3. Brightness
+
+Dùng 3 bin:
+
+```text
+dark    <= q33
+normal  <= q66
+bright  >  q66
+```
+
+### 9.4. Brightness delta
+
+Dùng absolute value:
+
+```text
+stable    nếu abs(brightness_delta) <= q80_abs_delta
+changing  nếu abs(brightness_delta) > q80_abs_delta
+```
+
+### 9.5. Scope của bin
+
+MVP fit bin theo global train normal để token dễ ổn định và ít vụn. Sau đó có thể mở rộng:
+
+- bin theo từng dataset;
+- bin theo cell;
+- bin theo zone semantic nếu có.
+
+## 10. Train token/rule model
+
+### Bước 1 - Load artifact
+
+Đọc:
+
+```text
+features_train.csv
+model_manifest.json
+cell_models.joblib
+cell_scalers.joblib
+thresholds.json
+```
+
+Kiểm tra:
+
+- dataset khớp config;
+- feature columns khớp model;
+- model KMeans có đủ cell;
+- train feature có `split=train`.
+
+### Bước 2 - Gán cluster cho train rows
+
+Với mỗi train row:
+
+1. lấy vector feature giống SPEC 3;
+2. dùng scaler/model theo `cell_id`;
+3. tìm centroid gần nhất;
+4. tạo `cluster=Cx`.
+
+Nếu cell fallback không có model:
+
+```text
+cluster=unknown
+```
+
+và không dùng row đó để sinh rule có cluster nếu số lượng fallback đáng kể.
+
+### Bước 3 - Fit token bins
+
+Fit bin thresholds từ train normal và lưu:
+
+```text
+token_bins.json
+```
+
+Payload:
+
+```json
+{
+  "motion_magnitude_mean": {"q20": 0.0, "q40": 0.0, "q60": 0.0, "q80": 0.0},
+  "motion_density": {"q33": 0.0, "q66": 0.0},
+  "brightness_mean": {"q33": 0.0, "q66": 0.0},
+  "brightness_delta_abs": {"q80": 0.0}
+}
+```
+
+### Bước 4 - Tạo transactions
+
+Mỗi transaction:
+
+```json
+{
+  "dataset": "ucsd_ped2",
+  "split": "train",
+  "video_id": "Train001",
+  "cube_id": "Train001_000001",
+  "center_frame_id": 3,
+  "cell_id": "08_05",
+  "tokens": [
+    "cell=08_05",
+    "motion=slow",
+    "density=low",
+    "brightness=normal",
+    "brightness_delta=stable",
+    "cluster=C3"
+  ]
+}
+```
+
+MVP không nhất thiết phải lưu toàn bộ transaction JSONL nếu muốn tiết kiệm dung lượng, nhưng nên có tùy chọn `--write-transactions` để debug.
+
+### Bước 5 - Count itemsets
+
+Đếm support cho itemset kích thước `1..max_itemset_size`.
+
+Mặc định:
+
+```text
+max_itemset_size = 3
+min_support = 0.01
+```
+
+Với mỗi transaction có khoảng 6-8 token, số combination nhỏ và bounded Apriori có thể chạy được trên UCSD Ped2.
+
+### Bước 6 - Sinh rules
+
+Từ frequent itemsets kích thước >= 2:
+
+```text
+antecedent -> consequent
+confidence = support(antecedent U consequent) / support(antecedent)
+lift = confidence / support(consequent)
+```
+
+Lọc:
+
+```text
+support >= min_support
+confidence >= min_confidence
+lift >= min_lift
+```
+
+Ưu tiên rules có consequent thuộc:
+
+```text
+motion=...
+density=...
+cluster=...
+brightness=...
+```
+
+Không chọn rule chỉ toàn vị trí:
+
+```text
+cell_row=08 -> cell_col=05
+```
+
+## 11. Output token/rule artifact
+
+Thư mục:
+
+```text
+src/outputs/rules/{dataset}/
+  rule_manifest.json
+  token_bins.json
+  itemsets.json
+  rules.json
+  selected_rules.md
+  token_stats.json
+  train_tokens_sample.jsonl
+```
+
+`rule_manifest.json`:
+
+```text
+schema_version
+dataset
+created_at
+config_path
+source_model_dir
+train_feature_path
+feature_columns
+token_schema
+num_transactions
+num_itemsets
+num_rules
+min_support
+min_confidence
+min_lift
+max_itemset_size
+warnings
+```
+
+`itemsets.json`:
+
+```json
+[
+  {
+    "items": ["cell=08_05", "motion=slow", "density=low"],
+    "count": 1234,
+    "support": 0.0123
+  }
+]
+```
+
+`rules.json`:
+
+```json
+[
+  {
+    "rule_id": "R0001",
+    "antecedent": ["cell=08_05", "brightness=normal"],
+    "consequent": ["motion=slow"],
+    "support": 0.0123,
+    "confidence": 0.74,
+    "lift": 1.18
+  }
+]
+```
+
+`selected_rules.md` chứa 20 rule tốt nhất kèm diễn giải để dùng trong báo cáo.
+
+## 12. Tính rare token score
+
+Với transaction test, chọn itemset quan trọng:
+
+```text
+{cell, motion, density}
+{cell, motion, cluster}
+{cell, density, cluster}
+{cell, brightness, motion}
+```
+
+Tra support trong train:
+
+```text
+support = itemset_support.get(items, 0.0)
+```
+
+Công thức MVP:
+
+```text
+rare_token_score = 1.0 - min(support / min_support, 1.0)
+```
+
+Nếu itemset không đủ thông tin hoặc support không có:
+
+```text
+rare_token_score = 1.0
+```
+
+Nhưng để tránh false positive quá mạnh:
+
+```text
+rare_token_score = min(rare_token_score, rare_score_cap)
+```
+
+Khuyến nghị mặc định:
+
+```text
+rare_score_cap = 1.0
+rare_token_weight = 0.10
+```
+
+Reason ví dụ:
+
+```text
+token combination {cell=08_05, motion=very_fast, density=high} has support=0.002 below min_support=0.010
+```
+
+## 13. Tính rule violation score
+
+Với mỗi rule:
+
+```text
+antecedent -> consequent
+```
+
+Nếu tất cả token trong antecedent có trong transaction nhưng một hoặc nhiều token consequent không có, xem là rule bị vi phạm.
+
+Điểm từng vi phạm:
+
+```text
+violation_strength = confidence * min(lift / 2.0, 1.0)
+```
+
+Điểm tổng:
+
+```text
+rule_violation_score = max(violation_strength của các rule bị vi phạm)
+```
+
+Hoặc lấy top-k mean nếu rule quá nhiễu:
+
+```text
+rule_violation_score = mean(top 3 violation_strength)
+```
+
+MVP dùng `max` để đơn giản và dễ giải thích.
+
+Reason ví dụ:
+
+```text
+rule R0012 expected motion=slow for {cell=08_05, brightness=normal}, but transaction has motion=very_fast
+```
+
+## 14. Mở rộng scoring pipeline
+
+Khi `rules.enabled=false`, `cell_scores.csv` giữ schema SPEC 3.
+
+Khi `rules.enabled=true`, thêm cột:
+
+```text
+tokens
+rare_token_score
+rare_itemset
+rare_itemset_support
+rule_violation_score
+violated_rules
+token_rule_reasons
+```
+
+Schema mới đề xuất:
+
+```text
+dataset
+split
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+cell_id
+cell_row
+cell_col
+nearest_cluster
+cluster_distance
+cluster_threshold
+cluster_distance_score
+temporal_change_score
+rare_token_score
+rule_violation_score
+cell_score
+tokens
+violated_rules
+token_rule_reasons
+```
+
+`frame_scores.csv` có thể giữ nguyên:
+
+```text
+dataset
+split
+video_id
+frame_id
+frame_score
+smoothed_frame_score
+severity
+top_cells
+```
+
+`alerts.json` cần thêm reason từ token/rule nếu có:
+
+```json
+[
+  "cell=08_05 has cluster_distance=1.42 above train threshold=0.87",
+  "token combination {cell=08_05, motion=very_fast, density=high} has low support",
+  "rule R0012 was violated: expected motion=slow"
+]
+```
+
+## 15. CLI đề xuất
+
+Train token/rule artifact:
+
+```bash
+python src/rules.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
+```
+
+Smoke train:
+
+```bash
+python src/rules.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --limit-rows 50000
+```
+
+Score test với rule artifact:
+
+```bash
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --rules src/outputs/rules/ucsd_ped2
+```
+
+Score test fallback không rules:
+
+```bash
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --no-rules
+```
+
+Xuất visualization để kiểm tra tương thích:
+
+```bash
+python src/visualize.py --config src/configs/ucsd_ped2.yaml --top-frames 5
+```
+
+## 16. Thí nghiệm bắt buộc
+
+### Experiment 1 - Train token/rule UCSD Ped2
+
+Input:
+
+```text
+features_train.csv
+SPEC 3 model artifact
+```
+
+Yêu cầu:
+
+- sinh `rule_manifest.json`;
+- sinh `token_bins.json`;
+- sinh `itemsets.json`;
+- sinh `rules.json`;
+- chọn được ít nhất 20 rule thô hoặc ghi rõ nếu rule quá ít;
+- `selected_rules.md` có diễn giải rule dễ đọc.
+
+### Experiment 2 - Score test có token/rule
+
+Input:
+
+```text
+features_test.csv
+SPEC 3 model artifact
+SPEC 5 rule artifact
+```
+
+Yêu cầu:
+
+- `cell_scores.csv` có `rare_token_score` và `rule_violation_score`;
+- score nằm trong `[0, 1]`;
+- `alerts.json` có reason token/rule khi có vi phạm;
+- không làm hỏng `frame_scores.csv`.
+
+### Experiment 3 - So sánh baseline không rule và có rule
+
+Chạy:
+
+```text
+SPEC 3 score: cluster + temporal
+SPEC 5 score: cluster + temporal + rare + rule
+```
+
+Ghi:
+
+- số frame medium/high;
+- số alert;
+- top 20 frame thay đổi nhiều nhất;
+- số alert có thêm reason token/rule;
+- nhận xét rule có làm score nhiễu hơn không.
+
+### Experiment 4 - Support/confidence sweep
+
+Chạy ít nhất 3 cấu hình:
+
+```text
+min_support=0.005, min_confidence=0.60
+min_support=0.010, min_confidence=0.60
+min_support=0.020, min_confidence=0.70
+```
+
+Ghi:
+
+- số itemsets;
+- số rules;
+- số violated rules trên test;
+- số alert có reason rule;
+- cấu hình nên dùng mặc định.
+
+### Experiment 5 - Visualization compatibility
+
+Sau khi scoring có schema mới:
+
+```bash
+python src/visualize.py --config src/configs/ucsd_ped2.yaml --top-frames 5
+python src/visualize.py --config src/configs/ucsd_ped2.yaml --alerts --limit-frames 5
+```
+
+Yêu cầu:
+
+- ảnh không blank;
+- top cells vẫn đọc đúng;
+- report hiển thị reason mới nếu có.
+
+## 17. Kiểm tra chất lượng
+
+Điều kiện chấp nhận:
+
+- Rule artifact load lại được bằng JSON.
+- Token bins chỉ fit từ train, không fit từ test.
+- Không có token rỗng hoặc token chứa dấu phân tách khó parse.
+- Itemset support nằm trong `[0, 1]`.
+- Confidence và lift tính đúng từ support.
+- `rare_token_score`, `rule_violation_score`, `cell_score` nằm trong `[0, 1]`.
+- Scoring vẫn chạy khi không có rules.
+- Visualization SPEC 4 vẫn chạy với `cell_scores.csv` mới.
+- Output có manifest ghi rõ config và số transaction/rule.
+
+Kiểm tra tự động đề xuất:
+
+```bash
+python -m compileall src/kpdl_anomaly src/rules.py src/test.py
+python src/rules.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --limit-rows 50000
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --rules src/outputs/rules/ucsd_ped2 --limit-rows 50000
+python src/visualize.py --config src/configs/ucsd_ped2.yaml --top-frames 5
+```
+
+Full verification sau smoke:
+
+```bash
+python src/rules.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --rules src/outputs/rules/ucsd_ped2
+```
+
+## 18. Checklist triển khai
+
+- [ ] Bổ sung config `rules` vào YAML dataset.
+- [ ] Cập nhật `AnomalyConfig` để đọc rules config và score weights mới.
+- [ ] Tạo `src/kpdl_anomaly/tokenization.py`.
+- [ ] Fit bin thresholds từ train normal.
+- [ ] Token hóa row thành transaction.
+- [ ] Gán `cluster=Cx` cho train bằng model SPEC 3.
+- [ ] Tạo `src/kpdl_anomaly/association.py`.
+- [ ] Đếm itemset support kích thước `1..3`.
+- [ ] Sinh association rules theo support/confidence/lift.
+- [ ] Tạo `src/kpdl_anomaly/rule_model.py`.
+- [ ] Lưu `rule_manifest.json`, `token_bins.json`, `itemsets.json`, `rules.json`.
+- [ ] Tạo `selected_rules.md`.
+- [ ] Tạo CLI `src/rules.py`.
+- [ ] Tạo `src/kpdl_anomaly/rule_scoring.py`.
+- [ ] Tính `rare_token_score`.
+- [ ] Tính `rule_violation_score`.
+- [ ] Mở rộng `src/kpdl_anomaly/scoring.py` để dùng rules khi enabled.
+- [ ] Mở rộng `CELL_SCORE_COLUMNS` hoặc writer để ghi token/rule columns.
+- [ ] Mở rộng reason trong `alerts.json`.
+- [ ] Thêm CLI `src/test.py --rules` và `--no-rules`.
+- [ ] Chạy smoke train token/rule.
+- [ ] Chạy smoke scoring có rules.
+- [ ] Chạy full UCSD Ped2 token/rule.
+- [ ] Chạy full UCSD Ped2 scoring có rules.
+- [ ] Chạy visualization smoke để kiểm tra tương thích.
+- [ ] Cập nhật `src/doc/spec_5_processed.md` sau khi triển khai.
+
+## 19. Tiêu chí hoàn thành SPEC 5
+
+SPEC 5 được xem là hoàn thành khi:
+
+- train được token/rule artifact từ UCSD Ped2 train normal;
+- sinh được bin thresholds, itemsets, rules và selected rule report;
+- test scoring chạy được với công thức đầy đủ `cluster + temporal + rare + rule`;
+- output cell score có rare/rule score và reason;
+- alert JSON có ít nhất một reason token/rule khi dữ liệu kích hoạt;
+- scoring cũ không rules vẫn chạy được;
+- visualization SPEC 4 không bị hỏng bởi schema mới;
+- có processed file ghi rõ file thay đổi, lệnh verification và kết quả;
+- `repomix-output.xml` được refresh sau khi verification pass.
+
+## 20. Rủi ro và giảm thiểu
+
+### 20.1. Token quá vụn
+
+Rủi ro: thêm `cell_id`, `cluster`, nhiều bin làm support thấp.
+
+Giảm thiểu:
+
+- giới hạn bin thô;
+- mặc định itemset size tối đa 3;
+- thử support sweep;
+- không dùng direction token khi chưa có hướng thật.
+
+### 20.2. Rare token không đồng nghĩa bất thường
+
+Rủi ro: tổ hợp hợp lệ nhưng ít gặp bị cộng điểm.
+
+Giảm thiểu:
+
+- `rare_token_weight` chỉ 0.10;
+- giữ cluster distance và temporal score làm thành phần chính;
+- yêu cầu smoothing/consecutive frame như SPEC 3.
+
+### 20.3. Rule gây hiểu sai
+
+Rủi ro: rule có confidence cao nhưng support thấp hoặc chỉ mô tả độ sáng.
+
+Giảm thiểu:
+
+- lọc theo support/confidence/lift;
+- chọn rule có motion/density/cluster;
+- ghi warning trong selected rules;
+- không dùng rule làm quyết định độc lập.
+
+### 20.4. Bộ đếm itemset tốn RAM
+
+Rủi ro: dữ liệu Avenue lớn hơn UCSD Ped2.
+
+Giảm thiểu:
+
+- ưu tiên UCSD Ped2;
+- stream CSV;
+- giới hạn max itemset size;
+- chỉ lưu itemset đạt support ngưỡng;
+- mở rộng FP-Growth sau nếu cần.
+
+### 20.5. Schema mới làm hỏng visualization
+
+Rủi ro: `cell_scores.csv` thêm cột làm code cũ parse sai.
+
+Giảm thiểu:
+
+- giữ nguyên các cột SPEC 3 bắt buộc;
+- chỉ thêm cột phía sau;
+- chạy smoke SPEC 4 sau scoring.
+
+## 21. Hướng sau SPEC 5
+
+Sau SPEC 5:
+
+- SPEC 6: đánh giá ROC-AUC/EER với ground truth UCSD và so sánh có/không có rule.
+- SPEC 7: thêm optical flow hoặc direction feature thật để token hướng chuyển động có ý nghĩa.
+- SPEC 8: tinh chỉnh threshold, smoothing và weight theo metric định lượng.
+</file>
+
+<file path="src/kpdl_anomaly/association.py">
+from __future__ import annotations
+
+from collections import Counter
+from itertools import combinations
+from typing import Any
+
+POSITION_PREFIXES = ("cell=", "cell_row=", "cell_col=")
+PREFERRED_CONSEQUENT_PREFIXES = (
+    "motion=",
+    "density=",
+    "cluster=",
+    "brightness=",
+    "brightness_delta=",
+)
+
+
+def update_itemset_counts(counter: Counter[tuple[str, ...]], tokens: list[str], max_size: int) -> None:
+    unique_tokens = tuple(sorted(set(tokens)))
+    upper = min(max_size, len(unique_tokens))
+    for size in range(1, upper + 1):
+        counter.update(combinations(unique_tokens, size))
+
+
+def itemset_records(
+    counter: Counter[tuple[str, ...]],
+    num_transactions: int,
+    min_support: float = 0.0,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    if num_transactions <= 0:
+        return records
+    for items, count in counter.items():
+        support = count / num_transactions
+        if support < min_support:
+            continue
+        records.append(
+            {
+                "items": list(items),
+                "count": int(count),
+                "support": float(support),
+            }
+        )
+    records.sort(key=lambda item: (-float(item["support"]), len(item["items"]), item["items"]))
+    return records
+
+
+def generate_association_rules(
+    counter: Counter[tuple[str, ...]],
+    num_transactions: int,
+    min_support: float,
+    min_confidence: float,
+    min_lift: float,
+    max_rules: int,
+) -> list[dict[str, Any]]:
+    if num_transactions <= 0:
+        return []
+
+    supports = {items: count / num_transactions for items, count in counter.items()}
+    candidates: list[dict[str, Any]] = []
+    for itemset, support in supports.items():
+        if len(itemset) < 2 or support < min_support:
+            continue
+        if _position_only(itemset):
+            continue
+
+        itemset_set = set(itemset)
+        for antecedent_size in range(1, len(itemset)):
+            for antecedent in combinations(itemset, antecedent_size):
+                consequent = tuple(sorted(itemset_set - set(antecedent)))
+                if not consequent or _position_only(antecedent + consequent):
+                    continue
+                if not _preferred_consequent(consequent):
+                    continue
+
+                antecedent_support = supports.get(tuple(sorted(antecedent)), 0.0)
+                consequent_support = supports.get(tuple(sorted(consequent)), 0.0)
+                if antecedent_support <= 0.0 or consequent_support <= 0.0:
+                    continue
+                confidence = support / antecedent_support
+                lift = confidence / consequent_support
+                if confidence < min_confidence or lift < min_lift:
+                    continue
+
+                candidates.append(
+                    {
+                        "antecedent": list(sorted(antecedent)),
+                        "consequent": list(consequent),
+                        "support": float(support),
+                        "confidence": float(confidence),
+                        "lift": float(lift),
+                    }
+                )
+
+    candidates.sort(
+        key=lambda item: (
+            -float(item["confidence"]),
+            -float(item["lift"]),
+            -float(item["support"]),
+            len(item["antecedent"]),
+            item["antecedent"],
+            item["consequent"],
+        )
+    )
+    selected = candidates[:max_rules]
+    for index, rule in enumerate(selected, start=1):
+        rule["rule_id"] = f"R{index:04d}"
+    return selected
+
+
+def _position_only(items: tuple[str, ...]) -> bool:
+    return all(any(item.startswith(prefix) for prefix in POSITION_PREFIXES) for item in items)
+
+
+def _preferred_consequent(consequent: tuple[str, ...]) -> bool:
+    return any(any(item.startswith(prefix) for prefix in PREFERRED_CONSEQUENT_PREFIXES) for item in consequent)
+</file>
+
+<file path="src/kpdl_anomaly/rule_model.py">
+from __future__ import annotations
+
+import csv
+import json
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import joblib
+import numpy as np
+
+from kpdl_preprocess.config import ConfigError
+
+from .association import generate_association_rules, itemset_records, update_itemset_counts
+from .config import AnomalyConfig
+from .feature_selection import row_to_vector
+from .io import output_dir, read_json, require_files, validate_feature_header, write_json
+from .schema import METADATA_COLUMNS, RULE_SCHEMA_VERSION
+from .tokenization import fit_token_bins, row_to_tokens
+
+SAMPLE_TRANSACTION_LIMIT = 200
+
+
+def train_rule_model(
+    config: AnomalyConfig,
+    model_dir: str | Path,
+    output_path: str | Path | None = None,
+    limit_rows: int | None = None,
+    write_transactions: bool = False,
+) -> dict[str, Any]:
+    model_path = Path(model_dir)
+    rule_path = output_dir(output_path or (config.rules.output_root / config.dataset))
+    require_files(
+        [
+            config.train_feature_path,
+            model_path / "model_manifest.json",
+            model_path / "cell_models.joblib",
+            model_path / "cell_scalers.joblib",
+            model_path / "thresholds.json",
+        ]
+    )
+    validate_feature_header(config.train_feature_path, METADATA_COLUMNS + config.feature_columns)
+
+    model_manifest = read_json(model_path / "model_manifest.json")
+    _validate_model_manifest(config, model_manifest)
+    models = joblib.load(model_path / "cell_models.joblib")
+    scalers = joblib.load(model_path / "cell_scalers.joblib")
+
+    token_bins = fit_token_bins(config.train_feature_path, expected_split="train", limit_rows=limit_rows)
+    itemset_counter: Counter[tuple[str, ...]] = Counter()
+    token_counter: Counter[str] = Counter()
+    rows_read = 0
+    rows_loaded = 0
+    invalid_rows = 0
+    split_mismatches = 0
+    fallback_cluster_rows = 0
+    empty_token_rows = 0
+
+    sample_path = rule_path / "train_tokens_sample.jsonl"
+    transaction_path = rule_path / "train_transactions.jsonl"
+    with config.train_feature_path.open("r", newline="", encoding="utf-8") as input_handle, sample_path.open(
+        "w", encoding="utf-8"
+    ) as sample_handle:
+        transaction_handle = transaction_path.open("w", encoding="utf-8") if write_transactions else None
+        try:
+            reader = csv.DictReader(input_handle)
+            for row in reader:
+                if limit_rows is not None and rows_read >= limit_rows:
+                    break
+                rows_read += 1
+                if row.get("split") != "train":
+                    split_mismatches += 1
+                    continue
+
+                vector = row_to_vector(row, config.feature_columns)
+                if vector is None:
+                    invalid_rows += 1
+                    continue
+
+                cluster_id = _nearest_cluster(str(row["cell_id"]), vector, models, scalers)
+                if cluster_id < 0:
+                    fallback_cluster_rows += 1
+
+                tokens = row_to_tokens(
+                    row,
+                    token_bins,
+                    cluster_id,
+                    include_cell_token=config.rules.include_cell_token,
+                    include_cluster_token=config.rules.include_cluster_token,
+                    include_brightness_token=config.rules.include_brightness_token,
+                    include_direction_token=config.rules.include_direction_token,
+                )
+                if not tokens:
+                    empty_token_rows += 1
+                    continue
+
+                rows_loaded += 1
+                token_counter.update(tokens)
+                update_itemset_counts(itemset_counter, tokens, config.rules.max_itemset_size)
+
+                record = _transaction_record(row, tokens)
+                if rows_loaded <= SAMPLE_TRANSACTION_LIMIT:
+                    sample_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                if transaction_handle is not None:
+                    transaction_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        finally:
+            if transaction_handle is not None:
+                transaction_handle.close()
+
+    if split_mismatches:
+        raise ConfigError(f"{config.train_feature_path} contains {split_mismatches} row(s) outside split='train'")
+    if rows_loaded == 0:
+        raise ConfigError("No valid train transactions were generated")
+
+    itemsets = itemset_records(
+        itemset_counter,
+        rows_loaded,
+        min_support=config.rules.rare_support_floor,
+    )
+    rules = generate_association_rules(
+        itemset_counter,
+        rows_loaded,
+        min_support=config.rules.min_support,
+        min_confidence=config.rules.min_confidence,
+        min_lift=config.rules.min_lift,
+        max_rules=config.rules.max_rules,
+    )
+    token_stats = _token_stats(token_counter, rows_loaded)
+    warnings = _warnings(
+        limit_rows=limit_rows,
+        invalid_rows=invalid_rows,
+        fallback_cluster_rows=fallback_cluster_rows,
+        empty_token_rows=empty_token_rows,
+        num_rules=len(rules),
+    )
+    created_at = datetime.now(timezone.utc).isoformat()
+    manifest = {
+        "schema_version": RULE_SCHEMA_VERSION,
+        "dataset": config.dataset,
+        "created_at": created_at,
+        "config_path": str(config.config_path),
+        "source_model_dir": str(model_path),
+        "train_feature_path": str(config.train_feature_path),
+        "feature_columns": config.feature_columns,
+        "token_schema": _token_schema(config),
+        "num_transactions": rows_loaded,
+        "rows_read": rows_read,
+        "invalid_rows": invalid_rows,
+        "fallback_cluster_rows": fallback_cluster_rows,
+        "num_itemsets": len(itemsets),
+        "num_rules": len(rules),
+        "min_support": config.rules.min_support,
+        "min_confidence": config.rules.min_confidence,
+        "min_lift": config.rules.min_lift,
+        "max_itemset_size": config.rules.max_itemset_size,
+        "rare_support_floor": config.rules.rare_support_floor,
+        "limit_rows": limit_rows,
+        "warnings": warnings,
+    }
+
+    write_json(rule_path / "rule_manifest.json", manifest)
+    write_json(rule_path / "token_bins.json", token_bins)
+    write_json(rule_path / "itemsets.json", itemsets)
+    write_json(rule_path / "rules.json", rules)
+    write_json(rule_path / "token_stats.json", token_stats)
+    _write_selected_rules(rule_path / "selected_rules.md", rules, manifest)
+
+    return {
+        "dataset": config.dataset,
+        "rule_dir": str(rule_path),
+        "manifest": manifest,
+        "token_bins_path": str(rule_path / "token_bins.json"),
+        "itemsets_path": str(rule_path / "itemsets.json"),
+        "rules_path": str(rule_path / "rules.json"),
+        "selected_rules_path": str(rule_path / "selected_rules.md"),
+    }
+
+
+def _validate_model_manifest(config: AnomalyConfig, manifest: dict[str, Any]) -> None:
+    if manifest.get("dataset") != config.dataset:
+        raise ConfigError(f"model dataset={manifest.get('dataset')!r} does not match config dataset={config.dataset!r}")
+    if list(manifest.get("feature_columns", [])) != config.feature_columns:
+        raise ConfigError("model feature_columns do not match config scoring.feature_columns")
+
+
+def _nearest_cluster(cell_id: str, vector: np.ndarray, models: dict[str, Any], scalers: dict[str, Any]) -> int:
+    model = models.get(cell_id)
+    scaler = scalers.get(cell_id)
+    if model is None or scaler is None:
+        return -1
+    scaled = scaler.transform(vector.reshape(1, -1))
+    distances = model.transform(scaled)[0]
+    return int(np.argmin(distances))
+
+
+def _transaction_record(row: dict[str, str], tokens: list[str]) -> dict[str, Any]:
+    return {
+        "dataset": row["dataset"],
+        "split": row["split"],
+        "video_id": row["video_id"],
+        "cube_id": row["cube_id"],
+        "center_frame_id": int(row["center_frame_id"]),
+        "cell_id": row["cell_id"],
+        "tokens": tokens,
+    }
+
+
+def _token_schema(config: AnomalyConfig) -> dict[str, Any]:
+    return {
+        "tokens": [
+            "cell",
+            "cell_row",
+            "cell_col",
+            "motion",
+            "density",
+            "brightness",
+            "brightness_delta",
+            "cluster",
+        ],
+        "include_cell_token": config.rules.include_cell_token,
+        "include_cluster_token": config.rules.include_cluster_token,
+        "include_brightness_token": config.rules.include_brightness_token,
+        "include_direction_token": config.rules.include_direction_token,
+    }
+
+
+def _token_stats(token_counter: Counter[str], num_transactions: int) -> dict[str, Any]:
+    records = [
+        {
+            "token": token,
+            "count": int(count),
+            "support": float(count / num_transactions),
+        }
+        for token, count in token_counter.items()
+    ]
+    records.sort(key=lambda item: (-float(item["support"]), item["token"]))
+    return {
+        "num_transactions": num_transactions,
+        "num_tokens": len(records),
+        "tokens": records,
+    }
+
+
+def _warnings(
+    limit_rows: int | None,
+    invalid_rows: int,
+    fallback_cluster_rows: int,
+    empty_token_rows: int,
+    num_rules: int,
+) -> list[str]:
+    warnings: list[str] = []
+    if limit_rows is not None:
+        warnings.append(f"limit_rows={limit_rows} was applied; artifact is for smoke/debug use")
+    if invalid_rows:
+        warnings.append(f"skipped {invalid_rows} row(s) with invalid numeric feature values")
+    if fallback_cluster_rows:
+        warnings.append(f"{fallback_cluster_rows} row(s) used cluster=unknown because no cell model/scaler was found")
+    if empty_token_rows:
+        warnings.append(f"skipped {empty_token_rows} row(s) that produced no tokens")
+    if num_rules < 20:
+        warnings.append(f"only {num_rules} rule(s) passed filters; selected_rules.md may be sparse")
+    return warnings
+
+
+def _write_selected_rules(path: Path, rules: list[dict[str, Any]], manifest: dict[str, Any]) -> None:
+    lines = [
+        "# Selected Association Rules",
+        "",
+        f"Dataset: `{manifest['dataset']}`",
+        f"Transactions: `{manifest['num_transactions']}`",
+        f"Filters: support >= `{manifest['min_support']}`, confidence >= `{manifest['min_confidence']}`, lift >= `{manifest['min_lift']}`",
+        "",
+    ]
+    if not rules:
+        lines.append("No association rules passed the configured filters.")
+    for rule in rules[:20]:
+        lines.append(
+            "- `{rule_id}`: {{{antecedent}}} -> {{{consequent}}} "
+            "support={support:.4f}, confidence={confidence:.4f}, lift={lift:.4f}".format(
+                rule_id=rule["rule_id"],
+                antecedent=", ".join(rule["antecedent"]),
+                consequent=", ".join(rule["consequent"]),
+                support=float(rule["support"]),
+                confidence=float(rule["confidence"]),
+                lift=float(rule["lift"]),
+            )
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+</file>
+
+<file path="src/kpdl_anomaly/rule_scoring.py">
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
+
+import numpy as np
+
+from .config import AnomalyConfig
+from .io import read_json
+from .tokenization import row_to_tokens
+
+
+@dataclass(frozen=True)
+class RuleScore:
+    tokens: list[str]
+    rare_token_score: float
+    rare_itemset: list[str]
+    rare_itemset_support: float
+    rule_violation_score: float
+    violated_rules: list[str]
+    reasons: list[str]
+
+
+@dataclass(frozen=True)
+class RuleLoadResult:
+    scorer: "RuleScorer | None"
+    rule_dir: Path | None
+    warnings: list[str]
+
+
+class RuleScorer:
+    def __init__(
+        self,
+        rule_dir: Path,
+        manifest: dict[str, Any],
+        token_bins: dict[str, Any],
+        itemsets: list[dict[str, Any]],
+        rules: list[dict[str, Any]],
+        config: AnomalyConfig,
+    ) -> None:
+        self.rule_dir = rule_dir
+        self.manifest = manifest
+        self.token_bins = token_bins
+        self.rules = rules
+        self.min_support = float(manifest.get("min_support", config.rules.min_support))
+        self.rare_itemset_size = config.rules.rare_itemset_size
+        self.rare_score_cap = config.rules.rare_score_cap
+        self.token_schema = dict(manifest.get("token_schema", {}))
+        self.itemset_support = {
+            tuple(sorted(str(item) for item in record.get("items", []))): float(record.get("support", 0.0))
+            for record in itemsets
+        }
+
+    def score(self, row: Mapping[str, Any], nearest_cluster: int | str | None) -> RuleScore:
+        tokens = row_to_tokens(
+            row,
+            self.token_bins,
+            nearest_cluster,
+            include_cell_token=bool(self.token_schema.get("include_cell_token", True)),
+            include_cluster_token=bool(self.token_schema.get("include_cluster_token", True)),
+            include_brightness_token=bool(self.token_schema.get("include_brightness_token", True)),
+            include_direction_token=bool(self.token_schema.get("include_direction_token", False)),
+        )
+        rare_score, rare_itemset, rare_support, rare_reason = self._rare_score(tokens)
+        violation_score, violated_rules, violation_reasons = self._rule_violation_score(tokens)
+        reasons = []
+        if rare_reason:
+            reasons.append(rare_reason)
+        reasons.extend(violation_reasons)
+        return RuleScore(
+            tokens=tokens,
+            rare_token_score=rare_score,
+            rare_itemset=rare_itemset,
+            rare_itemset_support=rare_support,
+            rule_violation_score=violation_score,
+            violated_rules=violated_rules,
+            reasons=reasons,
+        )
+
+    def _rare_score(self, tokens: list[str]) -> tuple[float, list[str], float, str | None]:
+        candidates = _rare_candidates(tokens, self.rare_itemset_size)
+        if not candidates:
+            return 0.0, [], 0.0, None
+
+        best_score = -1.0
+        best_itemset: list[str] = []
+        best_support = 0.0
+        denominator = max(self.min_support, 1.0e-12)
+        for candidate in candidates:
+            key = tuple(sorted(candidate))
+            support = self.itemset_support.get(key, 0.0)
+            score = 1.0 - min(support / denominator, 1.0)
+            score = min(float(np.clip(score, 0.0, 1.0)), self.rare_score_cap)
+            if score > best_score:
+                best_score = score
+                best_itemset = list(key)
+                best_support = support
+
+        reason = None
+        if best_itemset and best_support < self.min_support:
+            reason = (
+                "token combination {{{items}}} has support={support:.4f} below min_support={minimum:.4f}".format(
+                    items=", ".join(best_itemset),
+                    support=best_support,
+                    minimum=self.min_support,
+                )
+            )
+        return float(np.clip(best_score, 0.0, 1.0)), best_itemset, float(best_support), reason
+
+    def _rule_violation_score(self, tokens: list[str]) -> tuple[float, list[str], list[str]]:
+        transaction = set(tokens)
+        violations: list[dict[str, Any]] = []
+        for rule in self.rules:
+            antecedent = {str(item) for item in rule.get("antecedent", [])}
+            consequent = {str(item) for item in rule.get("consequent", [])}
+            if not antecedent or not consequent or not antecedent.issubset(transaction):
+                continue
+            if consequent.issubset(transaction):
+                continue
+            strength = float(rule.get("confidence", 0.0)) * min(float(rule.get("lift", 0.0)) / 2.0, 1.0)
+            strength = float(np.clip(strength, 0.0, 1.0))
+            missing = sorted(consequent - transaction)
+            violations.append(
+                {
+                    "rule_id": str(rule.get("rule_id", "")),
+                    "strength": strength,
+                    "antecedent": sorted(antecedent),
+                    "missing": missing,
+                    "reason": _violation_reason(rule, transaction, missing),
+                }
+            )
+
+        if not violations:
+            return 0.0, [], []
+        violations.sort(key=lambda item: (-float(item["strength"]), item["rule_id"]))
+        top = violations[:3]
+        return (
+            float(top[0]["strength"]),
+            [str(item["rule_id"]) for item in top if item["rule_id"]],
+            [str(item["reason"]) for item in top],
+        )
+
+
+def load_rule_scorer(
+    config: AnomalyConfig,
+    rule_dir: str | Path | None,
+    requested: bool,
+) -> RuleLoadResult:
+    if not requested:
+        return RuleLoadResult(scorer=None, rule_dir=None, warnings=[])
+
+    resolved_dir = Path(rule_dir) if rule_dir is not None else config.rules.model_dir or (config.rules.output_root / config.dataset)
+    required = [
+        resolved_dir / "rule_manifest.json",
+        resolved_dir / "token_bins.json",
+        resolved_dir / "itemsets.json",
+        resolved_dir / "rules.json",
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        return RuleLoadResult(
+            scorer=None,
+            rule_dir=resolved_dir,
+            warnings=[f"rule scoring disabled because artifact file(s) are missing: {', '.join(missing)}"],
+        )
+
+    manifest = read_json(required[0])
+    warnings: list[str] = []
+    if manifest.get("dataset") != config.dataset:
+        warnings.append(
+            f"rule scoring disabled because rule dataset={manifest.get('dataset')!r} does not match config dataset={config.dataset!r}"
+        )
+        return RuleLoadResult(scorer=None, rule_dir=resolved_dir, warnings=warnings)
+    if list(manifest.get("feature_columns", [])) != config.feature_columns:
+        warnings.append("rule scoring disabled because rule feature_columns do not match config scoring.feature_columns")
+        return RuleLoadResult(scorer=None, rule_dir=resolved_dir, warnings=warnings)
+
+    scorer = RuleScorer(
+        rule_dir=resolved_dir,
+        manifest=manifest,
+        token_bins=read_json(required[1]),
+        itemsets=read_json(required[2]),
+        rules=read_json(required[3]),
+        config=config,
+    )
+    return RuleLoadResult(scorer=scorer, rule_dir=resolved_dir, warnings=warnings)
+
+
+def _rare_candidates(tokens: list[str], max_size: int) -> list[list[str]]:
+    by_prefix = {token.split("=", 1)[0]: token for token in tokens if "=" in token}
+    specs = [
+        ("cell", "motion", "density"),
+        ("cell", "motion", "cluster"),
+        ("cell", "density", "cluster"),
+        ("cell", "brightness", "motion"),
+    ]
+    candidates: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for spec in specs:
+        if len(spec) > max_size:
+            continue
+        if not all(prefix in by_prefix for prefix in spec):
+            continue
+        candidate = tuple(sorted(by_prefix[prefix] for prefix in spec))
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(list(candidate))
+    return candidates
+
+
+def _violation_reason(rule: dict[str, Any], transaction: set[str], missing: list[str]) -> str:
+    antecedent = ", ".join(str(item) for item in rule.get("antecedent", []))
+    expected = ", ".join(missing)
+    observed = _observed_for_missing(transaction, missing)
+    if observed:
+        return f"rule {rule.get('rule_id')} expected {expected} for {{{antecedent}}}, but transaction has {observed}"
+    return f"rule {rule.get('rule_id')} expected {expected} for {{{antecedent}}}"
+
+
+def _observed_for_missing(transaction: set[str], missing: list[str]) -> str:
+    prefixes = [item.split("=", 1)[0] for item in missing if "=" in item]
+    observed: list[str] = []
+    for prefix in prefixes:
+        observed.extend(sorted(item for item in transaction if item.startswith(f"{prefix}=")))
+    return ", ".join(observed)
+</file>
+
+<file path="src/kpdl_anomaly/tokenization.py">
+from __future__ import annotations
+
+import csv
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from kpdl_preprocess.config import ConfigError
+
+from .io import validate_feature_header
+from .schema import METADATA_COLUMNS, RULE_SCHEMA_VERSION
+
+MOTION_COLUMN = "motion_magnitude_mean"
+DENSITY_COLUMN = "motion_density"
+BRIGHTNESS_COLUMN = "brightness_mean"
+BRIGHTNESS_DELTA_COLUMN = "brightness_delta"
+TOKEN_NUMERIC_COLUMNS = [
+    MOTION_COLUMN,
+    DENSITY_COLUMN,
+    BRIGHTNESS_COLUMN,
+    BRIGHTNESS_DELTA_COLUMN,
+]
+
+
+def fit_token_bins(
+    feature_path: str | Path,
+    expected_split: str = "train",
+    limit_rows: int | None = None,
+) -> dict[str, Any]:
+    required_columns = METADATA_COLUMNS + TOKEN_NUMERIC_COLUMNS
+    validate_feature_header(feature_path, required_columns)
+
+    values: dict[str, list[float]] = {column: [] for column in TOKEN_NUMERIC_COLUMNS}
+    rows_read = 0
+    rows_used = 0
+    invalid_rows = 0
+    split_mismatches = 0
+
+    with Path(feature_path).open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            if limit_rows is not None and rows_read >= limit_rows:
+                break
+            rows_read += 1
+            if row.get("split") != expected_split:
+                split_mismatches += 1
+                continue
+
+            parsed: dict[str, float] = {}
+            try:
+                for column in TOKEN_NUMERIC_COLUMNS:
+                    value = float(row[column])
+                    if not np.isfinite(value):
+                        raise ValueError(column)
+                    parsed[column] = value
+            except (KeyError, TypeError, ValueError):
+                invalid_rows += 1
+                continue
+
+            for column, value in parsed.items():
+                values[column].append(value)
+            rows_used += 1
+
+    if split_mismatches:
+        raise ConfigError(f"{feature_path} contains {split_mismatches} row(s) outside split={expected_split!r}")
+    if rows_used == 0:
+        raise ConfigError(f"No valid {expected_split!r} rows found for token bin fitting")
+
+    motion_values = _array(values[MOTION_COLUMN])
+    motion_positive = motion_values[motion_values > 1.0e-12]
+    motion_quantiles = _quantiles(motion_values, [0.20, 0.40, 0.60, 0.80])
+    positive_quantiles = _quantiles(motion_positive, [0.25, 0.50, 0.75]) if motion_positive.size else [0.0, 0.0, 0.0]
+
+    return {
+        "schema_version": RULE_SCHEMA_VERSION,
+        "fit_split": expected_split,
+        "rows_read": rows_read,
+        "rows_used": rows_used,
+        "invalid_rows": invalid_rows,
+        "limit_rows": limit_rows,
+        "features": {
+            MOTION_COLUMN: {
+                "q20": motion_quantiles[0],
+                "q40": motion_quantiles[1],
+                "q60": motion_quantiles[2],
+                "q80": motion_quantiles[3],
+                "epsilon": 1.0e-12,
+                "zero_heavy": bool(motion_quantiles[1] <= 1.0e-12 and motion_positive.size > 0),
+                "positive_q25": positive_quantiles[0],
+                "positive_q50": positive_quantiles[1],
+                "positive_q75": positive_quantiles[2],
+            },
+            DENSITY_COLUMN: _named_quantiles(values[DENSITY_COLUMN], {"q33": 0.33, "q66": 0.66}),
+            BRIGHTNESS_COLUMN: _named_quantiles(values[BRIGHTNESS_COLUMN], {"q33": 0.33, "q66": 0.66}),
+            "brightness_delta_abs": _named_quantiles(
+                [abs(value) for value in values[BRIGHTNESS_DELTA_COLUMN]],
+                {"q80": 0.80},
+            ),
+        },
+    }
+
+
+def row_to_tokens(
+    row: Mapping[str, Any],
+    bins: Mapping[str, Any],
+    cluster_id: int | str | None,
+    include_cell_token: bool = True,
+    include_cluster_token: bool = True,
+    include_brightness_token: bool = True,
+    include_direction_token: bool = False,
+) -> list[str]:
+    tokens: list[str] = []
+    if include_cell_token:
+        cell_id = str(row.get("cell_id", "")).strip()
+        if cell_id:
+            tokens.append(f"cell={cell_id}")
+        cell_row = _format_index(row.get("cell_row"))
+        if cell_row is not None:
+            tokens.append(f"cell_row={cell_row}")
+        cell_col = _format_index(row.get("cell_col"))
+        if cell_col is not None:
+            tokens.append(f"cell_col={cell_col}")
+
+    motion = _motion_bucket(_float_or_none(row.get(MOTION_COLUMN)), bins)
+    if motion is not None:
+        tokens.append(f"motion={motion}")
+
+    density = _three_bucket(_float_or_none(row.get(DENSITY_COLUMN)), bins, DENSITY_COLUMN, ("low", "medium", "high"))
+    if density is not None:
+        tokens.append(f"density={density}")
+
+    if include_brightness_token:
+        brightness = _three_bucket(
+            _float_or_none(row.get(BRIGHTNESS_COLUMN)),
+            bins,
+            BRIGHTNESS_COLUMN,
+            ("dark", "normal", "bright"),
+        )
+        if brightness is not None:
+            tokens.append(f"brightness={brightness}")
+
+        brightness_delta = _brightness_delta_bucket(_float_or_none(row.get(BRIGHTNESS_DELTA_COLUMN)), bins)
+        if brightness_delta is not None:
+            tokens.append(f"brightness_delta={brightness_delta}")
+
+    if include_cluster_token:
+        tokens.append(f"cluster={_cluster_label(cluster_id)}")
+
+    if include_direction_token:
+        direction = _direction_bucket(row)
+        if direction is not None:
+            tokens.append(f"direction={direction}")
+
+    return _dedupe(tokens)
+
+
+def _motion_bucket(value: float | None, bins: Mapping[str, Any]) -> str | None:
+    if value is None:
+        return None
+    payload = dict(bins.get("features", {}).get(MOTION_COLUMN, {}))
+    epsilon = float(payload.get("epsilon", 1.0e-12))
+    if bool(payload.get("zero_heavy", False)):
+        if value <= epsilon:
+            return "still"
+        if value <= float(payload.get("positive_q25", 0.0)):
+            return "slow"
+        if value <= float(payload.get("positive_q50", 0.0)):
+            return "medium"
+        if value <= float(payload.get("positive_q75", 0.0)):
+            return "fast"
+        return "very_fast"
+    if value <= float(payload.get("q20", 0.0)):
+        return "still"
+    if value <= float(payload.get("q40", 0.0)):
+        return "slow"
+    if value <= float(payload.get("q60", 0.0)):
+        return "medium"
+    if value <= float(payload.get("q80", 0.0)):
+        return "fast"
+    return "very_fast"
+
+
+def _three_bucket(
+    value: float | None,
+    bins: Mapping[str, Any],
+    column: str,
+    labels: tuple[str, str, str],
+) -> str | None:
+    if value is None:
+        return None
+    payload = dict(bins.get("features", {}).get(column, {}))
+    if value <= float(payload.get("q33", 0.0)):
+        return labels[0]
+    if value <= float(payload.get("q66", 0.0)):
+        return labels[1]
+    return labels[2]
+
+
+def _brightness_delta_bucket(value: float | None, bins: Mapping[str, Any]) -> str | None:
+    if value is None:
+        return None
+    payload = dict(bins.get("features", {}).get("brightness_delta_abs", {}))
+    return "stable" if abs(value) <= float(payload.get("q80", 0.0)) else "changing"
+
+
+def _direction_bucket(row: Mapping[str, Any]) -> str | None:
+    values: list[float] = []
+    for index in range(8):
+        value = _float_or_none(row.get(f"direction_hist_{index}"))
+        if value is None:
+            return None
+        values.append(value)
+    total = sum(values)
+    if total <= 1.0e-12:
+        return None
+    return f"bin_{int(np.argmax(np.asarray(values)))}"
+
+
+def _cluster_label(cluster_id: int | str | None) -> str:
+    if cluster_id is None:
+        return "unknown"
+    if isinstance(cluster_id, str):
+        cleaned = cluster_id.strip()
+        if not cleaned:
+            return "unknown"
+        return cleaned if cleaned.startswith("C") or cleaned == "unknown" else f"C{cleaned}"
+    return "unknown" if int(cluster_id) < 0 else f"C{int(cluster_id)}"
+
+
+def _format_index(raw: Any) -> str | None:
+    try:
+        return f"{int(raw):02d}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(raw: Any) -> float | None:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(value):
+        return None
+    return value
+
+
+def _array(values: list[float] | np.ndarray) -> np.ndarray:
+    return np.asarray(values, dtype=np.float64)
+
+
+def _quantiles(values: list[float] | np.ndarray, quantiles: list[float]) -> list[float]:
+    arr = _array(values)
+    if arr.size == 0:
+        return [0.0 for _ in quantiles]
+    return [float(np.quantile(arr, quantile)) for quantile in quantiles]
+
+
+def _named_quantiles(values: list[float], quantiles: dict[str, float]) -> dict[str, float]:
+    computed = _quantiles(values, list(quantiles.values()))
+    return {name: value for name, value in zip(quantiles.keys(), computed, strict=True)}
+
+
+def _dedupe(tokens: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in tokens:
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
+</file>
+
+<file path="src/rules.py">
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from kpdl_anomaly.config import load_anomaly_config
+from kpdl_anomaly.rule_model import train_rule_model
+from kpdl_preprocess.config import resolve_path
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train SPEC 5 token/rule artifacts.")
+    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
+    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument("--model", default=None, help="SPEC 3 model directory. Defaults to output.model_root/dataset.")
+    parser.add_argument("--output-dir", default=None, help="Override rule artifact directory.")
+    parser.add_argument("--limit-rows", type=int, default=None, help="Limit train feature rows for smoke tests.")
+    parser.add_argument("--write-transactions", action="store_true", help="Write all train transactions as JSONL.")
+    parser.add_argument("--min-support", type=float, default=None, help="Override rules.min_support.")
+    parser.add_argument("--min-confidence", type=float, default=None, help="Override rules.min_confidence.")
+    parser.add_argument("--min-lift", type=float, default=None, help="Override rules.min_lift.")
+    parser.add_argument("--max-rules", type=int, default=None, help="Override rules.max_rules.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    summary = run_rules(
+        config_path=args.config,
+        project_root=args.project_root,
+        model_dir=args.model,
+        output_dir=args.output_dir,
+        limit_rows=args.limit_rows,
+        write_transactions=args.write_transactions,
+        min_support=args.min_support,
+        min_confidence=args.min_confidence,
+        min_lift=args.min_lift,
+        max_rules=args.max_rules,
+    )
+    print(json.dumps(_public_summary(summary), indent=2))
+    return 0
+
+
+def run_rules(
+    config_path: str | Path,
+    project_root: str | Path = ".",
+    model_dir: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    limit_rows: int | None = None,
+    write_transactions: bool = False,
+    min_support: float | None = None,
+    min_confidence: float | None = None,
+    min_lift: float | None = None,
+    max_rules: int | None = None,
+) -> dict:
+    config = load_anomaly_config(config_path=config_path, project_root=project_root)
+    config = _with_overrides(
+        config,
+        min_support=min_support,
+        min_confidence=min_confidence,
+        min_lift=min_lift,
+        max_rules=max_rules,
+    )
+    resolved_model_dir = resolve_path(model_dir, config.project_root) if model_dir is not None else config.model_dir
+    resolved_output_dir = resolve_path(output_dir, config.project_root) if output_dir is not None else None
+    return train_rule_model(
+        config,
+        model_dir=resolved_model_dir,
+        output_path=resolved_output_dir,
+        limit_rows=limit_rows,
+        write_transactions=write_transactions,
+    )
+
+
+def _with_overrides(
+    config,
+    min_support: float | None,
+    min_confidence: float | None,
+    min_lift: float | None,
+    max_rules: int | None,
+):
+    rules = config.rules
+    if min_support is not None:
+        rules = replace(rules, min_support=min_support)
+    if min_confidence is not None:
+        rules = replace(rules, min_confidence=min_confidence)
+    if min_lift is not None:
+        rules = replace(rules, min_lift=min_lift)
+    if max_rules is not None:
+        rules = replace(rules, max_rules=max_rules)
+    return replace(config, rules=rules)
+
+
+def _public_summary(summary: dict) -> dict:
+    manifest = summary["manifest"]
+    return {
+        "dataset": summary["dataset"],
+        "rule_dir": summary["rule_dir"],
+        "num_transactions": manifest["num_transactions"],
+        "num_itemsets": manifest["num_itemsets"],
+        "num_rules": manifest["num_rules"],
+        "warnings": manifest["warnings"],
+    }
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+</file>
 
 <file path=".agents/skills/Dev/SKILL.md">
 ---
@@ -2719,672 +4779,6 @@ Giai đoạn tiền xử lý được xem là hoàn thành khi:
 - pipeline có thể chạy lại bằng config mà không cần sửa code.
 </file>
 
-<file path="src/doc/spec_2_processed.md">
-# SPEC 2 Processed - Tracker thực hành WEKA 3.8.7 K=5
-
-Original spec path: `src/doc/spec_2.md`
-
-Date/time prepared: 2026-05-27 Asia/Bangkok
-
-## 1. Mục đích file này
-
-File này là bảng theo dõi thực hành cho `src/doc/spec_2.md`.
-
-Các mục thực hành WEKA được cố ý để trống bằng checkbox `[ ]` và các trường chưa điền để người thực hành tự đánh dấu sau khi chạy trên WEKA 3.8.7. Không có mục thực hành nào bên dưới được đánh dấu hoàn thành sẵn.
-
-## 2. Việc đã chuẩn bị bởi Codex
-
-- [x] Đọc PRD trước khi cập nhật SPEC 2.
-- [x] Đọc `repomix-output.xml` để nắm cấu trúc repo.
-- [x] Đọc `src/doc/spec_2.md`.
-- [x] Tạo tracker thực hành trống cho các phần chưa chạy của SPEC 2.
-
-## 3. Trạng thái tổng quan SPEC 2
-
-- [ ] Xác nhận WEKA version là `3.8.7`.
-- [ ] Mở WEKA với heap đủ lớn.
-- [ ] Tạo thư mục output thực hành `src/outputs/weka_experiments/spec_2_weka_3_8_7/`.
-- [ ] Tạo hoặc mở `spec_2_log.md`.
-- [ ] Hoàn thành Experiment 1 - Global behavior KMeans K=5.
-- [ ] Hoàn thành Experiment 2 - Supplied test set cho global behavior K=5.
-- [ ] Hoàn thành Experiment 3 - Global spatio-behavior KMeans K=5.
-- [ ] Hoàn thành Experiment 4 - Selected per-cell KMeans K=5.
-- [ ] Hoàn thành Experiment 5 - Apriori trên dữ liệu đã rời rạc hóa.
-- [ ] Chọn 5 đến 10 luật dễ giải thích.
-- [ ] Ghi nhận xét cấu hình nào nên chuyển sang Python ở SPEC 3/SPEC 5.
-
-## 4. Output artifact cần tự đánh dấu
-
-### 4.1. Thư mục
-
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/`
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/`
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/models/`
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/`
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/assignments/`
-- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/rules/`
-
-### 4.2. Prepared ARFF
-
-- [ ] `prepared/ucsd_ped2_train_behavior_k5_standardized.arff`
-- [ ] `prepared/ucsd_ped2_test_behavior_k5_standardized.arff`
-- [ ] `prepared/ucsd_ped2_train_spatiobehavior_k5_standardized.arff`
-- [ ] `prepared/ucsd_ped2_train_rules_k5_discretized.arff`
-
-### 4.3. Models
-
-- [ ] `models/ucsd_ped2_global_behavior_simplekmeans_k5.model`
-- [ ] `models/ucsd_ped2_global_spatiobehavior_simplekmeans_k5.model`
-- [ ] `models/ucsd_ped2_cell_04_08_behavior_simplekmeans_k5.model`
-- [ ] `models/ucsd_ped2_cell_06_08_behavior_simplekmeans_k5.model`
-- [ ] `models/ucsd_ped2_cell_08_05_behavior_simplekmeans_k5.model`
-- [ ] `models/ucsd_ped2_cell_09_06_behavior_simplekmeans_k5.model`
-
-### 4.4. Reports
-
-- [ ] `reports/ucsd_ped2_global_behavior_simplekmeans_k5_train.txt`
-- [ ] `reports/ucsd_ped2_global_behavior_simplekmeans_k5_test.txt`
-- [ ] `reports/ucsd_ped2_global_spatiobehavior_simplekmeans_k5_train.txt`
-- [ ] `reports/ucsd_ped2_cell_04_08_behavior_simplekmeans_k5.txt`
-- [ ] `reports/ucsd_ped2_cell_06_08_behavior_simplekmeans_k5.txt`
-- [ ] `reports/ucsd_ped2_cell_08_05_behavior_simplekmeans_k5.txt`
-- [ ] `reports/ucsd_ped2_cell_09_06_behavior_simplekmeans_k5.txt`
-- [ ] `reports/ucsd_ped2_rules_apriori_k5.txt`
-
-### 4.5. Assignments và rules
-
-- [ ] `assignments/ucsd_ped2_train_behavior_k5_clusters.csv`
-- [ ] `assignments/ucsd_ped2_test_behavior_k5_clusters.csv`
-- [ ] `rules/ucsd_ped2_rules_k5_selected.md`
-
-## 5. Thực hành 1 - Mở và kiểm tra ARFF
-
-### 5.1. Train ARFF
-
-- [ ] Mở `src/outputs/weka/ucsd_ped2_features_train.arff`.
-- [ ] Kiểm tra số instances.
-- [ ] Kiểm tra số attributes.
-- [ ] Kiểm tra `cell_id` là nominal.
-- [ ] Kiểm tra các feature chính là numeric.
-- [ ] Kiểm tra missing value bất thường.
-
-Ghi nhận:
-
-```text
-WEKA version:
-Input:
-instances:
-attributes:
-cell_id type:
-missing summary:
-notes:
-```
-
-### 5.2. Test ARFF
-
-- [ ] Mở `src/outputs/weka/ucsd_ped2_features_test.arff`.
-- [ ] Kiểm tra số instances.
-- [ ] Kiểm tra số attributes.
-- [ ] Kiểm tra schema khớp train.
-
-Ghi nhận:
-
-```text
-Input:
-instances:
-attributes:
-schema matches train: yes/no
-notes:
-```
-
-## 6. Thực hành 2 - Tạo Baseline A behavior-only
-
-- [ ] Dùng `Remove` giữ `11-14,23-24` cho train.
-- [ ] Dùng `Standardize` cho train.
-- [ ] Lưu `ucsd_ped2_train_behavior_k5_standardized.arff`.
-- [ ] Dùng cùng feature set cho test.
-- [ ] Dùng `Standardize` cho test theo quy trình thực hành Explorer.
-- [ ] Lưu `ucsd_ped2_test_behavior_k5_standardized.arff`.
-
-Ghi nhận train:
-
-```text
-Remove attributeIndices:
-invertSelection:
-attributes after filter:
-Standardize applied: yes/no
-output file:
-notes:
-```
-
-Ghi nhận test:
-
-```text
-Remove attributeIndices:
-invertSelection:
-attributes after filter:
-Standardize applied: yes/no
-output file:
-notes:
-```
-
-## 7. Experiment 1 - Global behavior KMeans K=5
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Chọn `weka.clusterers.SimpleKMeans`.
-- [ ] Đặt `numClusters=5`.
-- [ ] Đặt `seed=10`.
-- [ ] Đặt `maxIterations=500`.
-- [ ] Bật hoặc ghi nhận `preserveInstancesOrder=True`.
-- [ ] Chạy `Use training set`.
-- [ ] Lưu model.
-- [ ] Lưu report train.
-- [ ] Ghi centroid.
-- [ ] Diễn giải 5 cụm.
-
-Ghi nhận:
-
-```text
-experiment_id: ucsd_ped2_global_behavior_simplekmeans_k5
-date:
-WEKA version:
-input file:
-feature set:
-filters:
-algorithm:
-K:
-seed:
-maxIterations:
-preserveInstancesOrder:
-runtime:
-iterations:
-within cluster SSE:
-model file:
-report file:
-```
-
-Cluster sizes:
-
-```text
-C0:
-C1:
-C2:
-C3:
-C4:
-```
-
-Centroid summary:
-
-```text
-C0:
-C1:
-C2:
-C3:
-C4:
-```
-
-Diễn giải:
-
-```text
-C0:
-C1:
-C2:
-C3:
-C4:
-```
-
-Nhận xét:
-
-```text
-cluster motion cao:
-cluster motion thấp:
-cluster brightness khác biệt:
-cụm nhỏ cần chú ý:
-accepted for next step: yes/no
-reason:
-```
-
-## 8. Experiment 2 - Supplied test set cho global behavior K=5
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Mở hoặc chọn test set đã chuẩn bị.
-- [ ] Dùng supplied test set cho model K=5.
-- [ ] Ghi phân bố cụm test.
-- [ ] So sánh phân bố train/test.
-- [ ] Lưu report test.
-- [ ] Xuất assignment nếu môi trường WEKA hỗ trợ.
-- [ ] Join assignment với metadata CSV nếu xuất được.
-
-Ghi nhận:
-
-```text
-experiment_id: ucsd_ped2_global_behavior_simplekmeans_k5_test
-date:
-train model:
-test input:
-report file:
-assignment file:
-runtime:
-```
-
-Test cluster sizes:
-
-```text
-C0:
-C1:
-C2:
-C3:
-C4:
-```
-
-So sánh train/test:
-
-```text
-cluster tăng rõ trên test:
-cluster giảm rõ trên test:
-nhận xét distribution shift:
-assignment exported: yes/no
-notes:
-```
-
-## 9. Experiment 3 - Global spatio-behavior KMeans K=5
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Tạo Baseline B bằng `Remove` giữ `9-14,23-24`.
-- [ ] Dùng `Standardize`.
-- [ ] Chạy `SimpleKMeans K=5`.
-- [ ] Lưu model.
-- [ ] Lưu report.
-- [ ] Đọc centroid của `cell_row`, `cell_col`.
-- [ ] So sánh với Baseline A.
-
-Ghi nhận:
-
-```text
-experiment_id: ucsd_ped2_global_spatiobehavior_simplekmeans_k5
-date:
-input file:
-feature set:
-filters:
-algorithm:
-K:
-seed:
-maxIterations:
-runtime:
-iterations:
-within cluster SSE:
-model file:
-report file:
-```
-
-Cluster sizes:
-
-```text
-C0:
-C1:
-C2:
-C3:
-C4:
-```
-
-Nhận xét:
-
-```text
-cell_row/cell_col có chi phối cụm không:
-motion feature còn tạo cụm rõ không:
-so sánh với Baseline A:
-accepted for next step: yes/no
-reason:
-```
-
-## 10. Experiment 4 - Selected per-cell KMeans K=5
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist chung:
-
-- [ ] Chạy cell `04_08`.
-- [ ] Chạy cell `06_08`.
-- [ ] Chạy cell `08_05`.
-- [ ] Chạy cell `09_06`.
-- [ ] Với mỗi cell, lọc đúng `cell_id`.
-- [ ] Với mỗi cell, giữ feature `11-14,23-24`.
-- [ ] Với mỗi cell, dùng `Standardize`.
-- [ ] Với mỗi cell, chạy `SimpleKMeans K=5`.
-- [ ] Với mỗi cell, lưu report.
-- [ ] Ghi cell nào không phù hợp với K=5 nếu có.
-
-### 10.1. Cell 04_08
-
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-```text
-cell_id: 04_08
-num_train_instances:
-feature_set:
-algorithm:
-K:
-seed:
-iterations:
-within_cluster_sse:
-model file:
-report file:
-cluster_sizes:
-centroid_summary:
-interpretation:
-usable_for_python_pipeline: yes/no
-notes:
-```
-
-### 10.2. Cell 06_08
-
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-```text
-cell_id: 06_08
-num_train_instances:
-feature_set:
-algorithm:
-K:
-seed:
-iterations:
-within_cluster_sse:
-model file:
-report file:
-cluster_sizes:
-centroid_summary:
-interpretation:
-usable_for_python_pipeline: yes/no
-notes:
-```
-
-### 10.3. Cell 08_05
-
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-```text
-cell_id: 08_05
-num_train_instances:
-feature_set:
-algorithm:
-K:
-seed:
-iterations:
-within_cluster_sse:
-model file:
-report file:
-cluster_sizes:
-centroid_summary:
-interpretation:
-usable_for_python_pipeline: yes/no
-notes:
-```
-
-### 10.4. Cell 09_06
-
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-```text
-cell_id: 09_06
-num_train_instances:
-feature_set:
-algorithm:
-K:
-seed:
-iterations:
-within_cluster_sse:
-model file:
-report file:
-cluster_sizes:
-centroid_summary:
-interpretation:
-usable_for_python_pipeline: yes/no
-notes:
-```
-
-## 11. Thực hành 7 - Tạo dữ liệu cho khai phá luật
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Xác định có `cluster_id` từ KMeans K=5 hay chưa.
-- [ ] Nếu có, thêm `cluster_id=C0..C4` vào dữ liệu rule.
-- [ ] Nếu chưa có, ghi rõ Apriori chạy không có `cluster_id`.
-- [ ] Giữ `cell_id`.
-- [ ] Giữ `motion_magnitude_mean`.
-- [ ] Giữ `motion_density`.
-- [ ] Giữ `brightness_mean`.
-- [ ] Giữ `brightness_delta`.
-- [ ] Bỏ metadata không dùng cho luật.
-
-Ghi nhận:
-
-```text
-input source:
-cluster_id available: yes/no
-attributes kept:
-attributes removed:
-output before discretize:
-notes:
-```
-
-## 12. Thực hành 8 - Rời rạc hóa feature numeric
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Dùng `weka.filters.unsupervised.attribute.Discretize`.
-- [ ] Đặt `bins=5`.
-- [ ] Đặt `useEqualFrequency=True`.
-- [ ] Kiểm tra các cột numeric đã thành nominal.
-- [ ] Lưu `prepared/ucsd_ped2_train_rules_k5_discretized.arff`.
-- [ ] Ghi cách diễn giải bin thành token dễ hiểu.
-
-Ghi nhận:
-
-```text
-input:
-Discretize bins:
-useEqualFrequency:
-numeric attributes discretized:
-output file:
-bin interpretation:
-notes:
-```
-
-## 13. Experiment 5 - Apriori trên dữ liệu đã rời rạc hóa
-
-Status:
-
-- [ ] Not started
-- [ ] Done
-- [ ] Skipped
-- [ ] Blocked
-
-Checklist:
-
-- [ ] Mở tab `Associate`.
-- [ ] Chọn `weka.associations.Apriori`.
-- [ ] Dùng dữ liệu đã discretize.
-- [ ] Chạy cấu hình support/confidence đầu tiên.
-- [ ] Lưu output thô.
-- [ ] Thử ngưỡng khác nếu luật quá ít hoặc quá nhiều.
-- [ ] Chọn 5 đến 10 luật tốt nhất.
-- [ ] Ghi support/confidence/lift nếu có.
-- [ ] Diễn giải luật bằng câu dễ hiểu.
-- [ ] Ghi luật nào dùng được cho anomaly reason.
-
-Ghi nhận cấu hình chính:
-
-```text
-experiment_id: ucsd_ped2_rules_discretize5_apriori_k5_s001_c06
-date:
-input file:
-attributes:
-numRules:
-metricType:
-minMetric:
-lowerBoundMinSupport:
-upperBoundMinSupport:
-delta:
-runtime:
-raw rules count:
-report file:
-selected rules file:
-```
-
-Selected rules:
-
-```text
-Rule 1:
-  antecedent:
-  consequent:
-  support:
-  confidence:
-  lift:
-  interpretation:
-  use_for_anomaly_reason:
-
-Rule 2:
-  antecedent:
-  consequent:
-  support:
-  confidence:
-  lift:
-  interpretation:
-  use_for_anomaly_reason:
-
-Rule 3:
-  antecedent:
-  consequent:
-  support:
-  confidence:
-  lift:
-  interpretation:
-  use_for_anomaly_reason:
-
-Rule 4:
-  antecedent:
-  consequent:
-  support:
-  confidence:
-  lift:
-  interpretation:
-  use_for_anomaly_reason:
-
-Rule 5:
-  antecedent:
-  consequent:
-  support:
-  confidence:
-  lift:
-  interpretation:
-  use_for_anomaly_reason:
-```
-
-Nếu chọn thêm luật:
-
-```text
-Rule 6:
-Rule 7:
-Rule 8:
-Rule 9:
-Rule 10:
-```
-
-Rejected rule patterns:
-
-```text
-
-```
-
-Notes:
-
-```text
-
-```
-
-## 14. Tiêu chí hoàn thành để tự tick
-
-- [ ] Có bản thực hành WEKA 3.8.7 rõ ràng cho UCSD Ped2.
-- [ ] Phân cụm chính dùng `SimpleKMeans` với `K=5`.
-- [ ] Có report centroid và cluster size của global behavior K=5.
-- [ ] Có phân bố cụm trên supplied test set.
-- [ ] Có ít nhất một phân tích spatio-behavior K=5.
-- [ ] Có ít nhất bốn thử nghiệm per-cell K=5 hoặc ghi rõ lý do không thể thao tác.
-- [ ] Có ít nhất một lần chạy Apriori trên dữ liệu đã rời rạc hóa.
-- [ ] Có 5 đến 10 luật được chọn và diễn giải.
-- [ ] Có log thực nghiệm đủ để tái hiện.
-- [ ] Có nhận xét cấu hình nào nên chuyển sang Python ở SPEC 3 và SPEC 5.
-
-## 15. Verification do người thực hành điền
-
-```text
-WEKA version verified:
-Date completed:
-Commands or GUI actions verified:
-Files manually checked:
-Known issues:
-Final notes:
-```
-
-## 16. Lượt cập nhật tracker
-
-- [x] 2026-05-27: Codex tạo tracker trống cho các phần thực hành chưa hoàn thành của SPEC 2.
-- [x] 2026-05-27: Codex kiểm tra `git diff --check -- src/doc/spec_2_processed.md`.
-- [x] 2026-05-27: Codex chạy `repomix.cmd` từ repo root để refresh `repomix-output.xml`.
-- [ ] Người thực hành cập nhật các checkbox và trường ghi nhận sau khi chạy WEKA.
-</file>
-
 <file path="src/doc/spec_3_processed.md">
 # SPEC 3 Processed - Triển khai Python anomaly baseline
 
@@ -4207,7 +5601,9 @@ Date/time processed: 2026-05-26 23:58:44 +07:00
 
 ## Summary
 
-Implementation in progress for SPEC 4. The scope is a visualization layer over existing SPEC 3 outputs: heatmap PNGs, alert peak images, overlay videos, JSON index/stats, and a qualitative Markdown report. The scoring formula is unchanged.
+Implementation is complete for SPEC 4. The scope is a visualization layer over existing SPEC 3 outputs: heatmap PNGs, alert peak images, overlay videos, JSON index/stats, and a qualitative Markdown report. The scoring formula is unchanged.
+
+2026-05-27 re-check: SPEC 4 is complete in the live repository. No source changes were required during this check; only verification artifacts were regenerated under separate `src/outputs/visualizations/ucsd_ped2_codex_*` folders and `repomix-output.xml` was refreshed.
 
 ## Checklist
 
@@ -4250,6 +5646,24 @@ Implementation in progress for SPEC 4. The scope is a visualization layer over e
   - Result: no whitespace errors in files changed for SPEC 4; Git reported only LF-to-CRLF warnings for YAML files.
 - [Blocked] Full `git diff --check`
   - Reason: generated `repomix-output.xml` has trailing whitespace from packed LaTeX/KMeans text sections after the final SPEC 4 repomix refresh; scoped SPEC 4 source files are clean.
+- [Done] `repomix.cmd`
+  - Result: Repomix v1.14.0 packed 62 files successfully and wrote `repomix-output.xml`.
+
+## 2026-05-27 Re-check Evidence
+
+- [Done] `python -m compileall src\kpdl_anomaly src\visualize.py`
+  - Result: compile completed successfully.
+- [Done] `python src\visualize.py --config src\configs\ucsd_ped2.yaml --top-frames 5 --output-dir src\outputs\visualizations\ucsd_ped2_codex_verify_top`
+  - Result: 5 frames selected, 5 images written, 0 missing frames, 0 missing cell score frames.
+- [Done] `python src\visualize.py --config src\configs\ucsd_ped2.yaml --alerts --limit-frames 5 --output-dir src\outputs\visualizations\ucsd_ped2_codex_verify_alerts`
+  - Result: 5 alert peak frames selected, 5 images written, 0 missing frames, 0 missing cell score frames.
+- [Done] `python src\visualize.py --config src\configs\ucsd_ped2.yaml --video-id Test001 --start-frame 150 --end-frame 180 --write-video --limit-frames 10 --output-dir src\outputs\visualizations\ucsd_ped2_codex_verify_video`
+  - Result: 1 overlay video written, 0 missing frames, 0 missing cell score frames.
+- [Done] Acceptance run: top 30 frames, all 16 alert peaks, and one `Test001` overlay video were exported to `src/outputs/visualizations/ucsd_ped2_codex_accept_*`.
+- [Done] Automated OpenCV validation.
+  - Result: 46 acceptance images exist and are nonblank; `Test001_overlay.mp4` opens and contains 29 frames, matching `visualization_stats.json`.
+- [Done] `git diff --check -- src\configs\ucsd_ped2.yaml src\configs\ucsd_ped1.yaml src\configs\avenue.yaml src\kpdl_anomaly\frames.py src\kpdl_anomaly\visualization.py src\kpdl_anomaly\qualitative.py src\visualize.py src\doc\spec_4_processed.md`
+  - Result: no whitespace errors.
 - [Done] `repomix.cmd`
   - Result: Repomix v1.14.0 packed 62 files successfully and wrote `repomix-output.xml`.
 
@@ -5090,6 +6504,9 @@ def _reasons(record: dict[str, Any], severity: str, min_consecutive: int) -> lis
         nearest = int(top["nearest_cluster"])
         if nearest >= 0:
             reasons.append(f"nearest normal cluster is C{nearest}")
+        for reason in top.get("token_rule_reasons", []):
+            if reason:
+                reasons.append(str(reason))
     reasons.append(
         f"smoothed frame score met {severity} threshold for at least "
         f"{min_consecutive} consecutive frames"
@@ -5107,6 +6524,26 @@ from typing import Any
 from kpdl_preprocess.config import ConfigError, copy_config, get_nested, load_config, resolve_path
 
 from .schema import DEFAULT_FEATURE_COLUMNS
+
+
+@dataclass(frozen=True)
+class RulesConfig:
+    enabled: bool
+    output_root: Path
+    model_dir: Path | None
+    algorithm: str
+    min_support: float
+    min_confidence: float
+    min_lift: float
+    max_itemset_size: int
+    max_rules: int
+    include_cell_token: bool
+    include_cluster_token: bool
+    include_brightness_token: bool
+    include_direction_token: bool
+    rare_itemset_size: int
+    rare_support_floor: float
+    rare_score_cap: float
 
 
 @dataclass(frozen=True)
@@ -5135,11 +6572,14 @@ class AnomalyConfig:
     feature_columns: list[str]
     cluster_weight: float
     temporal_weight: float
+    rare_token_weight: float
+    rule_weight: float
     top_k_cells: int
     smoothing_window: int
     alert_threshold_medium: float
     alert_threshold_high: float
     min_consecutive_alerts: int
+    rules: RulesConfig
 
 
 def load_anomaly_config(
@@ -5168,10 +6608,31 @@ def load_anomaly_config(
     if threshold_percentile is not None:
         model["threshold_percentile"] = threshold_percentile
 
+    rules = raw.setdefault("rules", {})
+    rules.setdefault("enabled", False)
+    rules.setdefault("output_root", "src/outputs/rules")
+    rules.setdefault("model_dir", None)
+    rules.setdefault("algorithm", "bounded_apriori")
+    rules.setdefault("min_support", 0.01)
+    rules.setdefault("min_confidence", 0.60)
+    rules.setdefault("min_lift", 1.05)
+    rules.setdefault("max_itemset_size", 3)
+    rules.setdefault("max_rules", 200)
+    rules.setdefault("include_cell_token", True)
+    rules.setdefault("include_cluster_token", True)
+    rules.setdefault("include_brightness_token", True)
+    rules.setdefault("include_direction_token", False)
+    rules.setdefault("rare_itemset_size", 3)
+    rules.setdefault("rare_support_floor", 0.001)
+    rules.setdefault("rare_score_cap", 1.0)
+
     scoring = raw.setdefault("scoring", {})
+    rules_enabled = bool(get_nested(raw, "rules", "enabled", default=False))
     scoring.setdefault("feature_columns", list(DEFAULT_FEATURE_COLUMNS))
-    scoring.setdefault("cluster_weight", 0.80)
+    scoring.setdefault("cluster_weight", 0.65 if rules_enabled else 0.80)
     scoring.setdefault("temporal_weight", 0.20)
+    scoring.setdefault("rare_token_weight", 0.10 if rules_enabled else 0.0)
+    scoring.setdefault("rule_weight", 0.05 if rules_enabled else 0.0)
     scoring.setdefault("top_k_cells", 5)
     scoring.setdefault("smoothing_window", 5)
     scoring.setdefault("alert_threshold_medium", 0.70)
@@ -5191,6 +6652,13 @@ def load_anomaly_config(
     preprocessed_root = resolve_path(str(get_nested(raw, "output", "root")), project_root)
     model_root_path = resolve_path(str(get_nested(raw, "output", "model_root")), project_root)
     result_root_path = resolve_path(str(get_nested(raw, "output", "result_root")), project_root)
+    rule_output_root = resolve_path(str(get_nested(raw, "rules", "output_root")), project_root)
+    rule_model_dir_value = get_nested(raw, "rules", "model_dir", default=None)
+    rule_model_dir = (
+        resolve_path(str(rule_model_dir_value), project_root)
+        if rule_model_dir_value not in {None, ""}
+        else None
+    )
     preprocessed_dir = preprocessed_root / dataset
 
     feature_columns = list(get_nested(raw, "scoring", "feature_columns", default=DEFAULT_FEATURE_COLUMNS))
@@ -5215,13 +6683,26 @@ def load_anomaly_config(
 
     cluster_weight = float(get_nested(raw, "scoring", "cluster_weight", default=0.80))
     temporal_weight = float(get_nested(raw, "scoring", "temporal_weight", default=0.20))
-    if cluster_weight < 0.0 or temporal_weight < 0.0:
+    rare_token_weight = float(get_nested(raw, "scoring", "rare_token_weight", default=0.0))
+    rule_weight = float(get_nested(raw, "scoring", "rule_weight", default=0.0))
+    if cluster_weight < 0.0 or temporal_weight < 0.0 or rare_token_weight < 0.0 or rule_weight < 0.0:
         raise ConfigError("scoring weights must be non-negative")
 
     medium = float(get_nested(raw, "scoring", "alert_threshold_medium", default=0.70))
     high = float(get_nested(raw, "scoring", "alert_threshold_high", default=0.90))
     if not 0.0 <= medium <= high <= 1.0:
         raise ConfigError("alert thresholds must satisfy 0 <= medium <= high <= 1")
+
+    algorithm = str(get_nested(raw, "rules", "algorithm", default="bounded_apriori"))
+    if algorithm != "bounded_apriori":
+        raise ConfigError("rules.algorithm currently supports only 'bounded_apriori'")
+    min_support = _probability(raw, "rules", "min_support", allow_zero=False)
+    min_confidence = _probability(raw, "rules", "min_confidence", allow_zero=False)
+    min_lift = float(get_nested(raw, "rules", "min_lift", default=1.05))
+    if min_lift <= 0.0:
+        raise ConfigError("rules.min_lift must be positive")
+    rare_support_floor = _probability(raw, "rules", "rare_support_floor", allow_zero=True)
+    rare_score_cap = _probability(raw, "rules", "rare_score_cap", allow_zero=True)
 
     return AnomalyConfig(
         raw=raw,
@@ -5248,11 +6729,31 @@ def load_anomaly_config(
         feature_columns=feature_columns,
         cluster_weight=cluster_weight,
         temporal_weight=temporal_weight,
+        rare_token_weight=rare_token_weight,
+        rule_weight=rule_weight,
         top_k_cells=_positive_int(raw, "scoring", "top_k_cells"),
         smoothing_window=_positive_int(raw, "scoring", "smoothing_window"),
         alert_threshold_medium=medium,
         alert_threshold_high=high,
         min_consecutive_alerts=_positive_int(raw, "scoring", "min_consecutive_alerts"),
+        rules=RulesConfig(
+            enabled=rules_enabled,
+            output_root=rule_output_root,
+            model_dir=rule_model_dir,
+            algorithm=algorithm,
+            min_support=min_support,
+            min_confidence=min_confidence,
+            min_lift=min_lift,
+            max_itemset_size=_positive_int(raw, "rules", "max_itemset_size"),
+            max_rules=_positive_int(raw, "rules", "max_rules"),
+            include_cell_token=bool(get_nested(raw, "rules", "include_cell_token", default=True)),
+            include_cluster_token=bool(get_nested(raw, "rules", "include_cluster_token", default=True)),
+            include_brightness_token=bool(get_nested(raw, "rules", "include_brightness_token", default=True)),
+            include_direction_token=bool(get_nested(raw, "rules", "include_direction_token", default=False)),
+            rare_itemset_size=_positive_int(raw, "rules", "rare_itemset_size"),
+            rare_support_floor=rare_support_floor,
+            rare_score_cap=rare_score_cap,
+        ),
     )
 
 
@@ -5260,6 +6761,15 @@ def _positive_int(config: dict[str, Any], section: str, key: str) -> int:
     value = int(get_nested(config, section, key))
     if value <= 0:
         raise ConfigError(f"{section}.{key} must be a positive integer")
+    return value
+
+
+def _probability(config: dict[str, Any], section: str, key: str, allow_zero: bool) -> float:
+    value = float(get_nested(config, section, key))
+    lower_ok = value >= 0.0 if allow_zero else value > 0.0
+    if not lower_ok or value > 1.0:
+        bound = "[0, 1]" if allow_zero else "(0, 1]"
+        raise ConfigError(f"{section}.{key} must be in the interval {bound}")
     return value
 </file>
 
@@ -5762,6 +7272,7 @@ def _markdown_link(record: dict[str, Any]) -> str:
 from __future__ import annotations
 
 SCHEMA_VERSION = "spec_3.anomaly.v1"
+RULE_SCHEMA_VERSION = "spec_5.rules.v1"
 
 METADATA_COLUMNS = [
     "dataset",
@@ -5804,6 +7315,16 @@ CELL_SCORE_COLUMNS = [
     "cell_score",
 ]
 
+RULE_SCORE_COLUMNS = [
+    "tokens",
+    "rare_token_score",
+    "rare_itemset",
+    "rare_itemset_support",
+    "rule_violation_score",
+    "violated_rules",
+    "token_rule_reasons",
+]
+
 FRAME_SCORE_COLUMNS = [
     "dataset",
     "split",
@@ -5835,7 +7356,8 @@ from .alerts import assign_severities, build_alerts
 from .config import AnomalyConfig
 from .feature_selection import row_to_vector
 from .io import output_dir, read_json, require_files, validate_feature_header, write_json
-from .schema import CELL_SCORE_COLUMNS, FRAME_SCORE_COLUMNS, METADATA_COLUMNS, SCHEMA_VERSION
+from .rule_scoring import RuleScore, load_rule_scorer
+from .schema import CELL_SCORE_COLUMNS, FRAME_SCORE_COLUMNS, METADATA_COLUMNS, RULE_SCORE_COLUMNS, SCHEMA_VERSION
 from .smoothing import moving_average
 from .thresholds import distance_to_score
 
@@ -5845,6 +7367,8 @@ def score_features(
     model_dir: str | Path,
     result_dir: str | Path | None = None,
     limit_rows: int | None = None,
+    rules_dir: str | Path | None = None,
+    use_rules: bool | None = None,
 ) -> dict[str, Any]:
     model_dir = Path(model_dir)
     result_path = output_dir(result_dir or config.result_dir)
@@ -5866,10 +7390,19 @@ def score_features(
     scalers = joblib.load(model_dir / "cell_scalers.joblib")
     thresholds_payload = read_json(model_dir / "thresholds.json")
     thresholds = dict(thresholds_payload.get("cells", {}))
+    requested_rules = config.rules.enabled if use_rules is None else bool(use_rules)
+    rule_load = load_rule_scorer(config, rules_dir, requested=requested_rules)
+    rule_scorer = rule_load.scorer
+    rules_active = rule_scorer is not None
+    score_weights = _score_weights(config, rules_active)
 
     cell_scores_path = result_path / "cell_scores.csv"
+    cell_score_columns = CELL_SCORE_COLUMNS + (RULE_SCORE_COLUMNS if rules_active else [])
     frame_groups: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
     previous_cluster_scores: dict[tuple[str, str], float] = {}
+    rare_scores: list[float] = []
+    rule_violation_scores: list[float] = []
+    token_reason_rows = 0
     rows_read = 0
     rows_scored = 0
     invalid_rows = 0
@@ -5880,7 +7413,7 @@ def score_features(
         "w", newline="", encoding="utf-8"
     ) as output_handle:
         reader = csv.DictReader(input_handle)
-        writer = csv.DictWriter(output_handle, fieldnames=CELL_SCORE_COLUMNS)
+        writer = csv.DictWriter(output_handle, fieldnames=cell_score_columns)
         writer.writeheader()
 
         for row in reader:
@@ -5906,32 +7439,43 @@ def score_features(
             temporal_change_score = float(np.clip(temporal_change_score, 0.0, 1.0))
             previous_cluster_scores[temporal_key] = score["cluster_distance_score"]
 
+            rule_score = _empty_rule_score()
+            if rule_scorer is not None:
+                rule_score = rule_scorer.score(row, score["nearest_cluster"])
+                rare_scores.append(rule_score.rare_token_score)
+                rule_violation_scores.append(rule_score.rule_violation_score)
+                if rule_score.reasons:
+                    token_reason_rows += 1
+
             cell_score = (
-                config.cluster_weight * score["cluster_distance_score"]
-                + config.temporal_weight * temporal_change_score
+                score_weights["cluster"] * score["cluster_distance_score"]
+                + score_weights["temporal"] * temporal_change_score
+                + score_weights["rare"] * rule_score.rare_token_score
+                + score_weights["rule"] * rule_score.rule_violation_score
             )
             cell_score = float(np.clip(cell_score, 0.0, 1.0))
 
-            writer.writerow(
-                {
-                    "dataset": row["dataset"],
-                    "split": row["split"],
-                    "video_id": row["video_id"],
-                    "cube_id": row["cube_id"],
-                    "start_frame_id": row["start_frame_id"],
-                    "end_frame_id": row["end_frame_id"],
-                    "center_frame_id": row["center_frame_id"],
-                    "cell_id": cell_id,
-                    "cell_row": row["cell_row"],
-                    "cell_col": row["cell_col"],
-                    "nearest_cluster": score["nearest_cluster"],
-                    "cluster_distance": _fmt(score["cluster_distance"]),
-                    "cluster_threshold": _fmt(score["cluster_threshold"]),
-                    "cluster_distance_score": _fmt(score["cluster_distance_score"]),
-                    "temporal_change_score": _fmt(temporal_change_score),
-                    "cell_score": _fmt(cell_score),
-                }
-            )
+            output_row = {
+                "dataset": row["dataset"],
+                "split": row["split"],
+                "video_id": row["video_id"],
+                "cube_id": row["cube_id"],
+                "start_frame_id": row["start_frame_id"],
+                "end_frame_id": row["end_frame_id"],
+                "center_frame_id": row["center_frame_id"],
+                "cell_id": cell_id,
+                "cell_row": row["cell_row"],
+                "cell_col": row["cell_col"],
+                "nearest_cluster": score["nearest_cluster"],
+                "cluster_distance": _fmt(score["cluster_distance"]),
+                "cluster_threshold": _fmt(score["cluster_threshold"]),
+                "cluster_distance_score": _fmt(score["cluster_distance_score"]),
+                "temporal_change_score": _fmt(temporal_change_score),
+                "cell_score": _fmt(cell_score),
+            }
+            if rules_active:
+                output_row.update(_rule_output_columns(rule_score))
+            writer.writerow(output_row)
 
             frame_id = int(row["center_frame_id"])
             frame_key = (str(row["dataset"]), str(row["split"]), str(row["video_id"]), frame_id)
@@ -5944,6 +7488,9 @@ def score_features(
                     "cluster_distance": score["cluster_distance"],
                     "cluster_threshold": score["cluster_threshold"],
                     "nearest_cluster": score["nearest_cluster"],
+                    "rare_token_score": rule_score.rare_token_score,
+                    "rule_violation_score": rule_score.rule_violation_score,
+                    "token_rule_reasons": rule_score.reasons,
                 },
                 config.top_k_cells,
             )
@@ -5985,6 +7532,14 @@ def score_features(
         frame_records=frame_records,
         alerts=alerts,
         limit_rows=limit_rows,
+        rule_dir=rule_load.rule_dir,
+        rule_warnings=rule_load.warnings,
+        rules_requested=requested_rules,
+        rules_active=rules_active,
+        score_weights=score_weights,
+        rare_scores=rare_scores,
+        rule_violation_scores=rule_violation_scores,
+        token_reason_rows=token_reason_rows,
     )
     write_json(result_path / "alerts.json", alerts)
     write_json(result_path / "scoring_stats.json", stats)
@@ -5996,6 +7551,43 @@ def _validate_manifest(config: AnomalyConfig, manifest: dict[str, Any]) -> None:
         raise ConfigError(f"model dataset={manifest.get('dataset')!r} does not match config dataset={config.dataset!r}")
     if list(manifest.get("feature_columns", [])) != config.feature_columns:
         raise ConfigError("model feature_columns do not match config scoring.feature_columns")
+
+
+def _score_weights(config: AnomalyConfig, rules_active: bool) -> dict[str, float]:
+    if rules_active:
+        return {
+            "cluster": config.cluster_weight,
+            "temporal": config.temporal_weight,
+            "rare": config.rare_token_weight,
+            "rule": config.rule_weight,
+        }
+    if config.rare_token_weight > 0.0 or config.rule_weight > 0.0:
+        return {"cluster": 0.80, "temporal": 0.20, "rare": 0.0, "rule": 0.0}
+    return {"cluster": config.cluster_weight, "temporal": config.temporal_weight, "rare": 0.0, "rule": 0.0}
+
+
+def _empty_rule_score() -> RuleScore:
+    return RuleScore(
+        tokens=[],
+        rare_token_score=0.0,
+        rare_itemset=[],
+        rare_itemset_support=0.0,
+        rule_violation_score=0.0,
+        violated_rules=[],
+        reasons=[],
+    )
+
+
+def _rule_output_columns(rule_score: RuleScore) -> dict[str, str]:
+    return {
+        "tokens": json.dumps(rule_score.tokens, ensure_ascii=False),
+        "rare_token_score": _fmt(rule_score.rare_token_score),
+        "rare_itemset": json.dumps(rule_score.rare_itemset, ensure_ascii=False),
+        "rare_itemset_support": _fmt(rule_score.rare_itemset_support),
+        "rule_violation_score": _fmt(rule_score.rule_violation_score),
+        "violated_rules": json.dumps(rule_score.violated_rules, ensure_ascii=False),
+        "token_rule_reasons": json.dumps(rule_score.reasons, ensure_ascii=False),
+    }
 
 
 def _score_row(
@@ -6098,6 +7690,14 @@ def _stats(
     frame_records: list[dict[str, Any]],
     alerts: list[dict[str, Any]],
     limit_rows: int | None,
+    rule_dir: Path | None,
+    rule_warnings: list[str],
+    rules_requested: bool,
+    rules_active: bool,
+    score_weights: dict[str, float],
+    rare_scores: list[float],
+    rule_violation_scores: list[float],
+    token_reason_rows: int,
 ) -> dict[str, Any]:
     frame_scores = [float(record["frame_score"]) for record in frame_records]
     smoothed_scores = [float(record["smoothed_frame_score"]) for record in frame_records]
@@ -6124,6 +7724,16 @@ def _stats(
         "num_alerts": len(alerts),
         "frame_score": _distribution(frame_scores),
         "smoothed_frame_score": _distribution(smoothed_scores),
+        "rules": {
+            "requested": rules_requested,
+            "active": rules_active,
+            "rule_dir": str(rule_dir) if rule_dir is not None else None,
+            "warnings": rule_warnings,
+            "score_weights": score_weights,
+            "token_reason_rows": token_reason_rows,
+            "rare_token_score": _distribution(rare_scores),
+            "rule_violation_score": _distribution(rule_violation_scores),
+        },
     }
 
 
@@ -6174,12 +7784,14 @@ from .scoring import score_features
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Score SPEC 3 anomaly models on test features.")
+    parser = argparse.ArgumentParser(description="Score SPEC 3/5 anomaly models on test features.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
     parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
     parser.add_argument("--model", default=None, help="Model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--result-root", default=None, help="Override result root.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit test feature rows for smoke tests.")
+    parser.add_argument("--rules", default=None, help="Rule artifact directory. Enables token/rule scoring.")
+    parser.add_argument("--no-rules", action="store_true", help="Disable token/rule scoring even if config enables it.")
     return parser
 
 
@@ -6191,6 +7803,8 @@ def main(argv: list[str] | None = None) -> int:
         model_dir=args.model,
         result_root=args.result_root,
         limit_rows=args.limit_rows,
+        rules_dir=args.rules,
+        use_rules=False if args.no_rules else (True if args.rules is not None else None),
     )
     print(json.dumps(_public_summary(summary), indent=2))
     return 0
@@ -6202,6 +7816,8 @@ def run_test(
     model_dir: str | Path | None = None,
     result_root: str | Path | None = None,
     limit_rows: int | None = None,
+    rules_dir: str | Path | None = None,
+    use_rules: bool | None = None,
 ) -> dict:
     config = load_anomaly_config(
         config_path=config_path,
@@ -6209,7 +7825,15 @@ def run_test(
         result_root=result_root,
     )
     resolved_model_dir = resolve_path(model_dir, config.project_root) if model_dir is not None else config.model_dir
-    return score_features(config, model_dir=resolved_model_dir, result_dir=config.result_dir, limit_rows=limit_rows)
+    resolved_rules_dir = resolve_path(rules_dir, config.project_root) if rules_dir is not None else None
+    return score_features(
+        config,
+        model_dir=resolved_model_dir,
+        result_dir=config.result_dir,
+        limit_rows=limit_rows,
+        rules_dir=resolved_rules_dir,
+        use_rules=use_rules,
+    )
 
 
 def _public_summary(summary: dict) -> dict:
@@ -6220,6 +7844,11 @@ def _public_summary(summary: dict) -> dict:
         "num_frames": summary["num_frames"],
         "severity_counts": summary["severity_counts"],
         "num_alerts": summary["num_alerts"],
+        "rules": {
+            "requested": summary.get("rules", {}).get("requested"),
+            "active": summary.get("rules", {}).get("active"),
+            "rule_dir": summary.get("rules", {}).get("rule_dir"),
+        },
     }
 </file>
 
@@ -7920,6 +9549,24 @@ output:
   root: "src/outputs/preprocessed"
   weka_root: "src/outputs/weka"
 
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
 visualization:
   output_root: "src/outputs/visualizations"
   colormap: "JET"
@@ -7972,6 +9619,24 @@ output:
   root: "src/outputs/preprocessed"
   weka_root: "src/outputs/weka"
 
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
 visualization:
   output_root: "src/outputs/visualizations"
   colormap: "JET"
@@ -7987,409 +9652,670 @@ visualization:
   video_fps: 10
 </file>
 
-<file path="src/doc/spec_1_processed.md">
-# SPEC 1 Processed - Trạng thái triển khai tiền xử lý UCSD và CUHK Avenue
-
-Tài liệu này đánh dấu các mục đã thực hiện từ `doc/spec_1.md`.
-
-Ngày cập nhật: 2026-05-26
-
-## 1. Tóm tắt trạng thái
-
-Đã tạo thư mục `src/` và triển khai pipeline tiền xử lý theo SPEC 1 ở mức MVP:
-
-- đọc UCSD Ped1/Ped2 dạng chuỗi frame `.tif`;
-- đọc CUHK Avenue dạng video `.avi`;
-- resize, grayscale, Gaussian blur tùy config;
-- tạo grid cố định;
-- tạo spatio-temporal cube;
-- trích xuất feature baseline bằng frame differencing;
-- xuất manifest, grid, feature CSV, stats JSON;
-- xuất ARFF cho WEKA;
-- tách entrypoint riêng cho UCSD và CUHK Avenue trong `src/tool/`;
-- đưa dataset SPEC 1 vào `src/dataset/`;
-- đưa output tiền xử lý mặc định vào `src/outputs/`;
-- chạy smoke test trên UCSD Ped1, UCSD Ped2 và CUHK Avenue;
-- thêm `.gitignore` để không commit dataset, output, archive và paper PDF ở root.
-
-Chưa chạy full preprocess toàn bộ UCSD Ped2 và toàn bộ Avenue trong bước này. Đã kiểm thử bằng giới hạn `1` video/sequence và `10-20` frame để xác nhận pipeline, schema và output.
-
-## 2. Output đã có
-
-Code chính:
-
-- [X] `src/preprocess.py`
-- [X] `src/csv_to_arff.py`
-- [X] `src/tool/preprocess_ucsd.py`
-- [X] `src/tool/preprocess_avenue.py`
-- [X] `src/kpdl_preprocess/`
-- [X] `src/configs/ucsd_ped2.yaml`
-- [X] `src/configs/ucsd_ped1.yaml`
-- [X] `src/configs/avenue.yaml`
-- [X] `src/requirements.txt`
-- [X] `src/README.md`
-- [X] `.gitignore`
-
-Dataset nội bộ `src`:
-
-- [X] `src/dataset/UCSD_Anomaly_Dataset.v1p2/`
-- [X] `src/dataset/CUHK-avenue/`
-
-Output smoke test:
-
-- [X] `src/outputs/preprocessed/ucsd_ped2/`
-- [X] `src/outputs/preprocessed/avenue/`
-- [X] `src/outputs/weka/ucsd_ped2_features_train.arff`
-- [X] `src/outputs/weka/ucsd_ped2_features_test.arff`
-- [X] `src/outputs/weka/avenue_features_train.arff`
-- [X] `src/outputs/weka/avenue_features_test.arff`
-
-Output cũ từng sinh ở project root đã được chuyển vào:
-
-- [X] `src/outputs/legacy_root_outputs/`
-
-## 3. Đánh dấu theo phạm vi SPEC 1
-
-### 3.1. Nằm trong phạm vi
-
-- [X] Đọc frame `.tif` của UCSD Ped1/Ped2.
-- [X] Đọc video `.avi` của CUHK Avenue.
-- [X] Resize frame về kích thước cấu hình.
-- [X] Chuyển grayscale.
-- [X] Làm trơn nhẹ bằng Gaussian blur nếu cấu hình bật.
-- [X] Chuẩn hóa độ sáng nhẹ nếu cấu hình bật.
-- [X] Chia frame thành grid cố định.
-- [X] Tạo spatio-temporal cube.
-- [X] Trích xuất feature chuyển động và ngữ cảnh cơ bản.
-- [X] Lưu feature và metadata.
-- [X] Kiểm tra số lượng frame, cube, cell và feature qua `preprocess_stats.json`.
-
-### 3.2. Ngoài phạm vi
-
-Các mục này chưa triển khai vì SPEC 1 xác định là ngoài phạm vi:
-
-- [ ] Train model phân cụm.
-- [ ] Tính anomaly score.
-- [ ] Khai phá association rules.
-- [ ] Vẽ heatmap kết quả bất thường.
-- [ ] Đánh giá ROC-AUC/EER.
-- [ ] Xử lý semantic object detection.
-
-## 4. Đánh dấu theo cấu hình đề xuất
-
-### 4.1. UCSD Ped2 baseline
-
-- [X] `data.dataset = ucsd_ped2`
-- [X] `data.root = src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2`
-- [X] `video.input_type = frame_sequence`
-- [X] `resize_width = 320`
-- [X] `resize_height = 240`
-- [X] `grayscale = true`
-- [X] `blur.enabled = true`
-- [X] `blur.kernel_size = 3`
-- [X] `brightness_normalization.enabled = false`
-- [X] `grid.rows = 12`
-- [X] `grid.cols = 16`
-- [X] `cube.length = 5`
-- [X] `cube.stride = 1`
-- [X] `motion_method = frame_diff`
-- [X] `frame_diff_threshold = 15`
-- [X] `direction_bins = 8`
-- [X] `use_brightness = true`
-- [X] `output.root = src/outputs/preprocessed`
-- [X] `output.weka_root = src/outputs/weka`
+<file path="src/doc/spec_2_processed.md">
+# SPEC 2 Processed - Tracker thực hành WEKA 3.8.7 K=5
 
-File: `src/configs/ucsd_ped2.yaml`
+Original spec path: `src/doc/spec_2.md`
 
-### 4.2. CUHK Avenue baseline
+Date/time prepared: 2026-05-27 Asia/Bangkok
 
-- [X] `data.dataset = avenue`
-- [X] `data.root = src/dataset/CUHK-avenue`
-- [X] `video.input_type = video`
-- [X] `resize_width = 320`
-- [X] `resize_height = 240`
-- [X] `grayscale = true`
-- [X] `blur.enabled = true`
-- [X] `blur.kernel_size = 3`
-- [X] `brightness_normalization.enabled = false`
-- [X] `grid.rows = 12`
-- [X] `grid.cols = 16`
-- [X] `cube.length = 5`
-- [X] `cube.stride = 1`
-- [X] `motion_method = frame_diff`
-- [X] `frame_diff_threshold = 15`
-- [X] `direction_bins = 8`
-- [X] `use_brightness = true`
-- [X] `output.root = src/outputs/preprocessed`
-- [X] `output.weka_root = src/outputs/weka`
+## 1. Mục đích file này
 
-File: `src/configs/avenue.yaml`
+File này là bảng theo dõi thực hành cho `src/doc/spec_2.md`.
 
-## 5. Đánh dấu theo pipeline chung
+Các mục thực hành WEKA được cố ý để trống bằng checkbox `[ ]` và các trường chưa điền để người thực hành tự đánh dấu sau khi chạy trên WEKA 3.8.7. Không có mục thực hành nào bên dưới được đánh dấu hoàn thành sẵn.
 
-### Bước 1 - Quét dataset
+## 2. Việc đã chuẩn bị bởi Codex
 
-- [X] Tạo danh sách `dataset, split, video_id, source_path, input_type`.
-- [X] UCSD: mỗi thư mục `TrainXXX` hoặc `TestXXX` là một sequence.
-- [X] Avenue: mỗi file `.avi` là một video.
-- [X] Bỏ qua thư mục ground truth `_gt` khi trích xuất feature.
+- [x] Đọc PRD trước khi cập nhật SPEC 2.
+- [x] Đọc `repomix-output.xml` để nắm cấu trúc repo.
+- [x] Đọc `src/doc/spec_2.md`.
+- [x] Tạo tracker thực hành trống cho các phần chưa chạy của SPEC 2.
 
-Module: `src/kpdl_preprocess/datasets.py`
+## 3. Trạng thái tổng quan SPEC 2
 
-### Bước 2 - Đọc frame
+- [ ] Xác nhận WEKA version là `3.8.7`.
+- [ ] Mở WEKA với heap đủ lớn.
+- [ ] Tạo thư mục output thực hành `src/outputs/weka_experiments/spec_2_weka_3_8_7/`.
+- [ ] Tạo hoặc mở `spec_2_log.md`.
+- [ ] Hoàn thành Experiment 1 - Global behavior KMeans K=5.
+- [ ] Hoàn thành Experiment 2 - Supplied test set cho global behavior K=5.
+- [ ] Hoàn thành Experiment 3 - Global spatio-behavior KMeans K=5.
+- [ ] Hoàn thành Experiment 4 - Selected per-cell KMeans K=5.
+- [ ] Hoàn thành Experiment 5 - Apriori trên dữ liệu đã rời rạc hóa.
+- [ ] Chọn 5 đến 10 luật dễ giải thích.
+- [ ] Ghi nhận xét cấu hình nào nên chuyển sang Python ở SPEC 3/SPEC 5.
 
-UCSD:
+## 4. Output artifact cần tự đánh dấu
 
-- [X] Đọc ảnh `.tif` theo thứ tự tăng dần.
-- [X] `frame_id` lấy từ tên file.
-- [X] `timestamp` gán theo thứ tự frame khi không có FPS.
+### 4.1. Thư mục
 
-Avenue:
-
-- [X] Đọc `.avi` bằng `cv2.VideoCapture`.
-- [X] `frame_id` bắt đầu từ 1.
-- [X] `timestamp = frame_id / fps` nếu đọc được FPS, ngược lại để trống.
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/`
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/prepared/`
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/models/`
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/reports/`
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/assignments/`
+- [ ] `src/outputs/weka_experiments/spec_2_weka_3_8_7/rules/`
 
-Module: `src/kpdl_preprocess/readers.py`
+### 4.2. Prepared ARFF
 
-### Bước 3 - Chuẩn hóa frame
-
-- [X] Đọc frame RGB/BGR hoặc grayscale.
-- [X] Resize theo config.
-- [X] Chuyển grayscale.
-- [X] Blur nhẹ nếu bật.
-- [X] Chuẩn hóa độ sáng nếu bật.
-- [X] Lưu kích thước gốc và kích thước resize trong manifest.
-
-Module: `src/kpdl_preprocess/readers.py`
-
-### Bước 4 - Tạo grid
-
-- [X] Grid mặc định `rows = 12`, `cols = 16`.
-- [X] Với `320x240`, tạo `192` cell.
-- [X] Lưu `cell_id` dạng `row_col`, ví dụ `08_05`.
-- [X] Xuất `grid.json`.
-
-Module: `src/kpdl_preprocess/grid.py`
-
-### Bước 5 - Tạo cube
-
-- [X] Cube sliding window với `length = 5`, `stride = 1`.
-- [X] Công thức số cube đúng: `floor((N - length) / stride) + 1`.
-- [X] Không lưu ảnh cube ra đĩa.
-- [X] Lưu metadata cube trong từng dòng feature.
-
-Module: `src/kpdl_preprocess/pipeline.py`
-
-### Bước 6 - Trích xuất feature
-
-- [X] Tính chênh lệch tuyệt đối giữa các frame liên tiếp trong cube.
-- [X] Threshold để tạo motion mask.
-- [X] Tính feature theo từng cell.
-- [X] `foreground_ratio`
-- [X] `motion_magnitude_mean`
-- [X] `motion_magnitude_std`
-- [X] `motion_density`
-- [X] `direction_hist_0..7`
-- [X] `brightness_mean`
-- [X] `brightness_delta`
-
-Ghi chú: với `motion_method = frame_diff`, các cột `direction_hist_0..7` hiện được tạo và gán `0.0`, đúng với ghi chú trong SPEC 1 rằng direction histogram chưa đáng tin cậy nếu chưa dùng optical flow.
-
-Module: `src/kpdl_preprocess/features.py`
-
-### Bước 7 - Lưu feature
-
-- [X] `frames_manifest.csv`
-- [X] `videos_manifest.csv`
-- [X] `grid.json`
-- [X] `features_train.csv`
-- [X] `features_test.csv`
-- [X] `preprocess_stats.json`
-
-Đã xác nhận bằng smoke test tại:
-
-- `src/outputs/preprocessed/ucsd_ped2/`
-- `src/outputs/preprocessed/avenue/`
-
-ARFF mặc định lưu tại:
-
-- `src/outputs/weka/`
-
-### Bước 8 - Xuất ARFF cho WEKA
-
-- [X] Convert feature CSV sang ARFF.
-- [X] Giữ `cell_id` dạng nominal.
-- [X] Cột numeric giữ dạng numeric.
-- [X] Cột text dài như `dataset`, `split`, `video_id`, `cube_id` để dạng string.
-
-Module:
-
-- `src/kpdl_preprocess/arff.py`
-- `src/csv_to_arff.py`
-
-## 6. Đánh dấu theo kế hoạch riêng cho UCSD
-
-- [X] Ưu tiên UCSD Ped2 trước.
-- [X] Có script riêng `src/tool/preprocess_ucsd.py`.
-- [X] Hỗ trợ `--ped ped2` và `--ped ped1`.
-- [X] Dataset UCSD đã nằm trong `src/dataset/UCSD_Anomaly_Dataset.v1p2/`.
-- [X] Đọc các file `.tif` theo thứ tự tên file.
-- [X] Tên sequence là tên thư mục, ví dụ `Train001`, `Test001`.
-- [X] Không đọc thư mục `*_gt` trong tiền xử lý feature.
-- [X] Ground truth mask chưa dùng, đúng phạm vi SPEC 1.
-- [X] Lưu `videos_manifest.csv`.
-- [X] Lưu `frames_manifest.csv`.
-- [X] Không hard-code kích thước frame gốc.
-- [X] Smoke test UCSD Ped1 train với `1` sequence và `10` frame.
-- [X] Smoke test UCSD Ped2 train/test với `1` sequence mỗi split và `10` frame.
-- [X] Chạy full preprocess toàn bộ UCSD Ped2.
-- [ ] Mở rộng/chạy full UCSD Ped1.
-
-## 7. Đánh dấu theo kế hoạch riêng cho CUHK Avenue
-
-- [X] Có script riêng `src/tool/preprocess_avenue.py`.
-- [X] Dataset Avenue đã nằm trong `src/dataset/CUHK-avenue/`.
-- [X] Đọc `training_videos/*.avi`.
-- [X] Đọc `testing_videos/*.avi`.
-- [X] Bỏ qua `training_vol` và `testing_vol` trong MVP.
-- [X] Dùng OpenCV đọc từng frame.
-- [X] Lấy FPS, width, height từ `VideoCapture`.
-- [X] `video_id` lấy từ tên file không có đuôi, ví dụ `01`.
-- [X] Lưu `videos_manifest.csv`.
-- [X] Lưu `frames_manifest.csv`.
-- [X] Smoke test Avenue train/test với `1` video mỗi split và `10` frame.
-- [ ] Chạy full preprocess toàn bộ Avenue.
-- [ ] Nghiên cứu file `.mat` để lấy annotation sau.
-
-## 8. Kiểm tra chất lượng đầu ra
-
-Đã có các trường thống kê trong `preprocess_stats.json`:
-
-- [X] `dataset`
-- [X] `split`
-- [X] `num_videos`
-- [X] `num_frames`
-- [X] `num_cubes`
-- [X] `num_cells`
-- [X] `num_feature_rows`
-- [X] `missing_frames`
-- [X] `failed_videos`
-- [X] `avg_motion_density`
-- [X] `avg_brightness`
-
-Kết quả smoke test:
-
-- [X] UCSD Ped2 train/test đọc được `1` sequence mỗi split.
-- [X] UCSD Ped1 train đọc được `1` sequence.
-- [X] Avenue train/test đọc được `1` video mỗi split.
-- [X] Với `10` frame, `cube.length = 5`, `stride = 1`: mỗi split có `6` cube.
-- [X] Với `12 x 16 = 192` cell: mỗi split có `6 * 192 = 1152` dòng feature.
-- [X] `failed_videos = 0`.
-- [X] ARFF sinh được cho train/test của UCSD Ped2 và Avenue.
-- [X] Header `features_train.csv`, `frames_manifest.csv`, `videos_manifest.csv` của UCSD và Avenue khớp nhau sau khi chuyển output vào `src/outputs`.
-
-Chưa kiểm tra ở quy mô full:
-
-- [ ] Đọc toàn bộ video/sequence trong split.
-- [ ] So khớp frame manifest với toàn bộ frame thực tế.
-- [ ] Kiểm tra NaN trên toàn bộ feature CSV lớn.
-- [ ] Kiểm tra phân phối feature trên toàn bộ dataset.
-
-## 9. Checklist thực hiện từ SPEC 1
-
-- [X] Tạo config riêng cho `ucsd_ped2`.
-- [X] Tạo config riêng cho `ucsd_ped1`.
-- [X] Tạo config riêng cho `avenue`.
-- [X] Tách file chạy riêng cho UCSD.
-- [X] Tách file chạy riêng cho Avenue.
-- [X] Viết dataset scanner cho frame sequence và video.
-- [X] Viết frame reader cho UCSD.
-- [X] Viết video reader cho Avenue.
-- [X] Viết preprocess transform dùng chung.
-- [X] Viết grid generator.
-- [X] Viết cube iterator.
-- [X] Viết feature extractor baseline bằng frame differencing.
-- [X] Lưu manifest, grid và feature CSV.
-- [X] Tạo script convert CSV sang ARFF cho WEKA.
-- [X] Chạy smoke test trên 1 video/sequence mỗi dataset.
-- [X] Chuyển dataset UCSD và Avenue vào `src/dataset`.
-- [X] Chuyển output mặc định vào `src/outputs`.
-- [X] Thêm `.gitignore` cho dataset/output/PDF/archive/cache.
-- [X] Chạy full preprocess cho UCSD Ped2.
-- [ ] Chạy full preprocess cho Avenue.
-- [X] Ghi `preprocess_stats.json`.
-
-## 10. Tiêu chí hoàn thành SPEC 1
-
-- [ ] UCSD Ped2 có `features_train.csv` và `features_test.csv` full dataset.
-- [ ] Avenue có `features_train.csv` và `features_test.csv` full dataset.
-- [X] Mỗi feature row truy vết được về video/frame/cell/cube.
-- [X] UCSD và Avenue xuất cùng một schema chung qua `src/kpdl_preprocess/schema.py`.
-- [X] Có `grid.json` để dùng lại khi vẽ heatmap.
-- [X] Có `preprocess_stats.json` cho mỗi dataset trong smoke test.
-- [X] Có thể xuất ARFF để thử nghiệm WEKA.
-- [X] Pipeline có thể chạy lại bằng config mà không cần sửa code.
-- [X] Kết quả tiền xử lý mặc định nằm trong `src/outputs`.
-- [X] Dataset và output không bị commit nhờ `.gitignore`.
-
-## 11. Lệnh đã dùng để kiểm thử
-
-```bash
-python tool/preprocess_ucsd.py --ped ped2 --limit-videos 1 --limit-frames 10 --export-arff
+- [ ] `prepared/ucsd_ped2_train_behavior_k5_standardized.arff`
+- [ ] `prepared/ucsd_ped2_test_behavior_k5_standardized.arff`
+- [ ] `prepared/ucsd_ped2_train_spatiobehavior_k5_standardized.arff`
+- [ ] `prepared/ucsd_ped2_train_rules_k5_discretized.arff`
+
+### 4.3. Models
+
+- [ ] `models/ucsd_ped2_global_behavior_simplekmeans_k5.model`
+- [ ] `models/ucsd_ped2_global_spatiobehavior_simplekmeans_k5.model`
+- [ ] `models/ucsd_ped2_cell_04_08_behavior_simplekmeans_k5.model`
+- [ ] `models/ucsd_ped2_cell_06_08_behavior_simplekmeans_k5.model`
+- [ ] `models/ucsd_ped2_cell_08_05_behavior_simplekmeans_k5.model`
+- [ ] `models/ucsd_ped2_cell_09_06_behavior_simplekmeans_k5.model`
+
+### 4.4. Reports
+
+- [ ] `reports/ucsd_ped2_global_behavior_simplekmeans_k5_train.txt`
+- [ ] `reports/ucsd_ped2_global_behavior_simplekmeans_k5_test.txt`
+- [ ] `reports/ucsd_ped2_global_spatiobehavior_simplekmeans_k5_train.txt`
+- [ ] `reports/ucsd_ped2_cell_04_08_behavior_simplekmeans_k5.txt`
+- [ ] `reports/ucsd_ped2_cell_06_08_behavior_simplekmeans_k5.txt`
+- [ ] `reports/ucsd_ped2_cell_08_05_behavior_simplekmeans_k5.txt`
+- [ ] `reports/ucsd_ped2_cell_09_06_behavior_simplekmeans_k5.txt`
+- [ ] `reports/ucsd_ped2_rules_apriori_k5.txt`
+
+### 4.5. Assignments và rules
+
+- [ ] `assignments/ucsd_ped2_train_behavior_k5_clusters.csv`
+- [ ] `assignments/ucsd_ped2_test_behavior_k5_clusters.csv`
+- [ ] `rules/ucsd_ped2_rules_k5_selected.md`
+
+## 5. Thực hành 1 - Mở và kiểm tra ARFF
+
+### 5.1. Train ARFF
+
+- [ ] Mở `src/outputs/weka/ucsd_ped2_features_train.arff`.
+- [ ] Kiểm tra số instances.
+- [ ] Kiểm tra số attributes.
+- [ ] Kiểm tra `cell_id` là nominal.
+- [ ] Kiểm tra các feature chính là numeric.
+- [ ] Kiểm tra missing value bất thường.
+
+Ghi nhận:
+
+```text
+WEKA version:
+Input:
+instances:
+attributes:
+cell_id type:
+missing summary:
+notes:
 ```
 
-```bash
-python tool/preprocess_avenue.py --limit-videos 1 --limit-frames 10 --export-arff
+### 5.2. Test ARFF
+
+- [ ] Mở `src/outputs/weka/ucsd_ped2_features_test.arff`.
+- [ ] Kiểm tra số instances.
+- [ ] Kiểm tra số attributes.
+- [ ] Kiểm tra schema khớp train.
+
+Ghi nhận:
+
+```text
+Input:
+instances:
+attributes:
+schema matches train: yes/no
+notes:
 ```
 
-```bash
-python tool/preprocess_ucsd.py --ped ped1 --split train --limit-videos 1 --limit-frames 10
+## 6. Thực hành 2 - Tạo Baseline A behavior-only
+
+- [ ] Dùng `Remove` giữ `11-14,23-24` cho train.
+- [ ] Dùng `Standardize` cho train.
+- [ ] Lưu `ucsd_ped2_train_behavior_k5_standardized.arff`.
+- [ ] Dùng cùng feature set cho test.
+- [ ] Dùng `Standardize` cho test theo quy trình thực hành Explorer.
+- [ ] Lưu `ucsd_ped2_test_behavior_k5_standardized.arff`.
+
+Ghi nhận train:
+
+```text
+Remove attributeIndices:
+invertSelection:
+attributes after filter:
+Standardize applied: yes/no
+output file:
+notes:
 ```
 
-## 12. Lệnh đề xuất để hoàn tất full preprocess
+Ghi nhận test:
 
-```bash
-python tool/preprocess_ucsd.py --ped ped2 --export-arff
+```text
+Remove attributeIndices:
+invertSelection:
+attributes after filter:
+Standardize applied: yes/no
+output file:
+notes:
 ```
 
-```bash
-python tool/preprocess_avenue.py --export-arff
+## 7. Experiment 1 - Global behavior KMeans K=5
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Chọn `weka.clusterers.SimpleKMeans`.
+- [ ] Đặt `numClusters=5`.
+- [ ] Đặt `seed=10`.
+- [ ] Đặt `maxIterations=500`.
+- [ ] Bật hoặc ghi nhận `preserveInstancesOrder=True`.
+- [ ] Chạy `Use training set`.
+- [ ] Lưu model.
+- [ ] Lưu report train.
+- [ ] Ghi centroid.
+- [ ] Diễn giải 5 cụm.
+
+Ghi nhận:
+
+```text
+experiment_id: ucsd_ped2_global_behavior_simplekmeans_k5
+date:
+WEKA version:
+input file:
+feature set:
+filters:
+algorithm:
+K:
+seed:
+maxIterations:
+preserveInstancesOrder:
+runtime:
+iterations:
+within cluster SSE:
+model file:
+report file:
 ```
 
-## 13. Quản lý dữ liệu và Git
+Cluster sizes:
 
-Đã thêm `.gitignore` để tránh commit các dữ liệu và artifact nặng:
+```text
+C0:
+C1:
+C2:
+C3:
+C4:
+```
 
-- [X] `/New folder/`
-- [X] `/dataset/`
-- [X] `/src/dataset/`
-- [X] `/outputs/`
-- [X] `/src/outputs/`
-- [X] `/*.pdf`
-- [X] `__pycache__/`
-- [X] `*.py[cod]`
+Centroid summary:
 
-Đã kiểm tra bằng `git check-ignore`:
+```text
+C0:
+C1:
+C2:
+C3:
+C4:
+```
 
-- [X] `New folder`
-- [X] `dataset`
-- [X] `src/dataset`
-- [X] `src/outputs`
-- [X] các PDF paper ở project root.
+Diễn giải:
 
-## 14. Cập nhật 2026-05-26 - Avenue full preprocess chạy lâu
+```text
+C0:
+C1:
+C2:
+C3:
+C4:
+```
 
-Spec gốc: `src/doc/spec_1.md`
+Nhận xét:
 
-- [X] Kiểm tra lại luồng `src/tool/preprocess_avenue.py`: entrypoint chỉ gọi pipeline dùng chung, nguyên nhân nằm ở đọc video/ghi feature và việc thiếu log tiến độ.
-- [X] Probe toàn bộ CUHK Avenue: 16 video train, 21 video test, tổng `30652` frame; OpenCV đọc thô toàn bộ video kết thúc bình thường trong khoảng `9.37s`, không thấy file `.avi` bị đọc vô hạn.
-- [X] Thêm `--progress-every` cho `src/tool/_common.py` và `src/kpdl_preprocess/cli.py` để in tiến độ theo video/frame khi chạy full preprocess.
-- [X] Thêm guard trong `src/kpdl_preprocess/readers.py` dựa trên `CAP_PROP_FRAME_COUNT` cộng tolerance để tránh trường hợp `VideoCapture.read()` không tự kết thúc ở video lỗi.
-- [X] Cập nhật `src/kpdl_preprocess/pipeline.py` để log start/progress/done/fail từng video và ghi `missing_frames` khi số frame đọc được thấp hơn metadata.
-- [X] Verification: `python -m compileall src\kpdl_preprocess src\tool`
-- [X] Verification: `python src\tool\preprocess_avenue.py --limit-videos 1 --limit-frames 10 --output-root src\outputs\preprocessed_fix_smoke --export-arff --progress-every 5`
-- [ ] Chưa chạy full Avenue lại trong bước này vì full dataset sẽ tạo khoảng `5.85M` dòng feature trước khi export ARFF.
+```text
+cluster motion cao:
+cluster motion thấp:
+cluster brightness khác biệt:
+cụm nhỏ cần chú ý:
+accepted for next step: yes/no
+reason:
+```
+
+## 8. Experiment 2 - Supplied test set cho global behavior K=5
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Mở hoặc chọn test set đã chuẩn bị.
+- [ ] Dùng supplied test set cho model K=5.
+- [ ] Ghi phân bố cụm test.
+- [ ] So sánh phân bố train/test.
+- [ ] Lưu report test.
+- [ ] Xuất assignment nếu môi trường WEKA hỗ trợ.
+- [ ] Join assignment với metadata CSV nếu xuất được.
+
+Ghi nhận:
+
+```text
+experiment_id: ucsd_ped2_global_behavior_simplekmeans_k5_test
+date:
+train model:
+test input:
+report file:
+assignment file:
+runtime:
+```
+
+Test cluster sizes:
+
+```text
+C0:
+C1:
+C2:
+C3:
+C4:
+```
+
+So sánh train/test:
+
+```text
+cluster tăng rõ trên test:
+cluster giảm rõ trên test:
+nhận xét distribution shift:
+assignment exported: yes/no
+notes:
+```
+
+## 9. Experiment 3 - Global spatio-behavior KMeans K=5
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Tạo Baseline B bằng `Remove` giữ `9-14,23-24`.
+- [ ] Dùng `Standardize`.
+- [ ] Chạy `SimpleKMeans K=5`.
+- [ ] Lưu model.
+- [ ] Lưu report.
+- [ ] Đọc centroid của `cell_row`, `cell_col`.
+- [ ] So sánh với Baseline A.
+
+Ghi nhận:
+
+```text
+experiment_id: ucsd_ped2_global_spatiobehavior_simplekmeans_k5
+date:
+input file:
+feature set:
+filters:
+algorithm:
+K:
+seed:
+maxIterations:
+runtime:
+iterations:
+within cluster SSE:
+model file:
+report file:
+```
+
+Cluster sizes:
+
+```text
+C0:
+C1:
+C2:
+C3:
+C4:
+```
+
+Nhận xét:
+
+```text
+cell_row/cell_col có chi phối cụm không:
+motion feature còn tạo cụm rõ không:
+so sánh với Baseline A:
+accepted for next step: yes/no
+reason:
+```
+
+## 10. Experiment 4 - Selected per-cell KMeans K=5
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist chung:
+
+- [ ] Chạy cell `04_08`.
+- [ ] Chạy cell `06_08`.
+- [ ] Chạy cell `08_05`.
+- [ ] Chạy cell `09_06`.
+- [ ] Với mỗi cell, lọc đúng `cell_id`.
+- [ ] Với mỗi cell, giữ feature `11-14,23-24`.
+- [ ] Với mỗi cell, dùng `Standardize`.
+- [ ] Với mỗi cell, chạy `SimpleKMeans K=5`.
+- [ ] Với mỗi cell, lưu report.
+- [ ] Ghi cell nào không phù hợp với K=5 nếu có.
+
+### 10.1. Cell 04_08
+
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+```text
+cell_id: 04_08
+num_train_instances:
+feature_set:
+algorithm:
+K:
+seed:
+iterations:
+within_cluster_sse:
+model file:
+report file:
+cluster_sizes:
+centroid_summary:
+interpretation:
+usable_for_python_pipeline: yes/no
+notes:
+```
+
+### 10.2. Cell 06_08
+
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+```text
+cell_id: 06_08
+num_train_instances:
+feature_set:
+algorithm:
+K:
+seed:
+iterations:
+within_cluster_sse:
+model file:
+report file:
+cluster_sizes:
+centroid_summary:
+interpretation:
+usable_for_python_pipeline: yes/no
+notes:
+```
+
+### 10.3. Cell 08_05
+
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+```text
+cell_id: 08_05
+num_train_instances:
+feature_set:
+algorithm:
+K:
+seed:
+iterations:
+within_cluster_sse:
+model file:
+report file:
+cluster_sizes:
+centroid_summary:
+interpretation:
+usable_for_python_pipeline: yes/no
+notes:
+```
+
+### 10.4. Cell 09_06
+
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+```text
+cell_id: 09_06
+num_train_instances:
+feature_set:
+algorithm:
+K:
+seed:
+iterations:
+within_cluster_sse:
+model file:
+report file:
+cluster_sizes:
+centroid_summary:
+interpretation:
+usable_for_python_pipeline: yes/no
+notes:
+```
+
+## 11. Thực hành 7 - Tạo dữ liệu cho khai phá luật
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Xác định có `cluster_id` từ KMeans K=5 hay chưa.
+- [ ] Nếu có, thêm `cluster_id=C0..C4` vào dữ liệu rule.
+- [ ] Nếu chưa có, ghi rõ Apriori chạy không có `cluster_id`.
+- [ ] Giữ `cell_id`.
+- [ ] Giữ `motion_magnitude_mean`.
+- [ ] Giữ `motion_density`.
+- [ ] Giữ `brightness_mean`.
+- [ ] Giữ `brightness_delta`.
+- [ ] Bỏ metadata không dùng cho luật.
+
+Ghi nhận:
+
+```text
+input source:
+cluster_id available: yes/no
+attributes kept:
+attributes removed:
+output before discretize:
+notes:
+```
+
+## 12. Thực hành 8 - Rời rạc hóa feature numeric
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Dùng `weka.filters.unsupervised.attribute.Discretize`.
+- [ ] Đặt `bins=5`.
+- [ ] Đặt `useEqualFrequency=True`.
+- [ ] Kiểm tra các cột numeric đã thành nominal.
+- [ ] Lưu `prepared/ucsd_ped2_train_rules_k5_discretized.arff`.
+- [ ] Ghi cách diễn giải bin thành token dễ hiểu.
+
+Ghi nhận:
+
+```text
+input:
+Discretize bins:
+useEqualFrequency:
+numeric attributes discretized:
+output file:
+bin interpretation:
+notes:
+```
+
+## 13. Experiment 5 - Apriori trên dữ liệu đã rời rạc hóa
+
+Status:
+
+- [ ] Not started
+- [ ] Done
+- [ ] Skipped
+- [ ] Blocked
+
+Checklist:
+
+- [ ] Mở tab `Associate`.
+- [ ] Chọn `weka.associations.Apriori`.
+- [ ] Dùng dữ liệu đã discretize.
+- [ ] Chạy cấu hình support/confidence đầu tiên.
+- [ ] Lưu output thô.
+- [ ] Thử ngưỡng khác nếu luật quá ít hoặc quá nhiều.
+- [ ] Chọn 5 đến 10 luật tốt nhất.
+- [ ] Ghi support/confidence/lift nếu có.
+- [ ] Diễn giải luật bằng câu dễ hiểu.
+- [ ] Ghi luật nào dùng được cho anomaly reason.
+
+Ghi nhận cấu hình chính:
+
+```text
+experiment_id: ucsd_ped2_rules_discretize5_apriori_k5_s001_c06
+date:
+input file:
+attributes:
+numRules:
+metricType:
+minMetric:
+lowerBoundMinSupport:
+upperBoundMinSupport:
+delta:
+runtime:
+raw rules count:
+report file:
+selected rules file:
+```
+
+Selected rules:
+
+```text
+Rule 1:
+  antecedent:
+  consequent:
+  support:
+  confidence:
+  lift:
+  interpretation:
+  use_for_anomaly_reason:
+
+Rule 2:
+  antecedent:
+  consequent:
+  support:
+  confidence:
+  lift:
+  interpretation:
+  use_for_anomaly_reason:
+
+Rule 3:
+  antecedent:
+  consequent:
+  support:
+  confidence:
+  lift:
+  interpretation:
+  use_for_anomaly_reason:
+
+Rule 4:
+  antecedent:
+  consequent:
+  support:
+  confidence:
+  lift:
+  interpretation:
+  use_for_anomaly_reason:
+
+Rule 5:
+  antecedent:
+  consequent:
+  support:
+  confidence:
+  lift:
+  interpretation:
+  use_for_anomaly_reason:
+```
+
+Nếu chọn thêm luật:
+
+```text
+Rule 6:
+Rule 7:
+Rule 8:
+Rule 9:
+Rule 10:
+```
+
+Rejected rule patterns:
+
+```text
+
+```
+
+Notes:
+
+```text
+
+```
+
+## 14. Tiêu chí hoàn thành để tự tick
+
+- [ ] Có bản thực hành WEKA 3.8.7 rõ ràng cho UCSD Ped2.
+- [ ] Phân cụm chính dùng `SimpleKMeans` với `K=5`.
+- [ ] Có report centroid và cluster size của global behavior K=5.
+- [ ] Có phân bố cụm trên supplied test set.
+- [ ] Có ít nhất một phân tích spatio-behavior K=5.
+- [ ] Có ít nhất bốn thử nghiệm per-cell K=5 hoặc ghi rõ lý do không thể thao tác.
+- [ ] Có ít nhất một lần chạy Apriori trên dữ liệu đã rời rạc hóa.
+- [ ] Có 5 đến 10 luật được chọn và diễn giải.
+- [ ] Có log thực nghiệm đủ để tái hiện.
+- [ ] Có nhận xét cấu hình nào nên chuyển sang Python ở SPEC 3 và SPEC 5.
+
+## 15. Verification do người thực hành điền
+
+```text
+WEKA version verified:
+Date completed:
+Commands or GUI actions verified:
+Files manually checked:
+Known issues:
+Final notes:
+```
+
+## 16. Lượt cập nhật tracker
+
+- [x] 2026-05-27: Codex tạo tracker trống cho các phần thực hành chưa hoàn thành của SPEC 2.
+- [x] 2026-05-27: Codex kiểm tra `git diff --check -- src/doc/spec_2_processed.md`.
+- [x] 2026-05-27: Codex chạy `repomix.cmd` từ repo root để refresh `repomix-output.xml`.
+- [ ] Người thực hành cập nhật các checkbox và trường ghi nhận sau khi chạy WEKA.
 </file>
 
 <file path="src/doc/spec_2.md">
@@ -10534,256 +12460,6 @@ def _video_safety_limit(frame_count_hint: int | None, limit_frames: int | None) 
     return min(guarded_limit, limit_frames) if limit_frames is not None else guarded_limit
 </file>
 
-<file path="src/README.md">
-# KPDL Anomaly Pipeline
-
-README này liệt kê các lệnh Python để chạy dự án từ **repository root**:
-
-```powershell
-cd C:\Users\Dell\Desktop\KPDL\Project
-```
-
-Các lệnh bên dưới giả định dataset đã nằm đúng theo config:
-
-```text
-src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2
-src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped1
-src/dataset/CUHK-avenue
-```
-
-## 1. Cài môi trường
-
-Tạo virtual environment:
-
-```powershell
-python -m venv .venv
-```
-
-Kích hoạt virtual environment trên PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-Cài toàn bộ thư viện cần thiết:
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r src/requirements.txt
-```
-
-## 2. Chạy nhanh để kiểm tra pipeline
-
-Smoke test tiền xử lý UCSD Ped2:
-
-```powershell
-python src/preprocess.py --config src/configs/ucsd_ped2.yaml --project-root . --limit-videos 1 --limit-frames 10 --export-arff
-```
-
-Smoke test train model:
-
-```powershell
-python src/train.py --config src/configs/ucsd_ped2.yaml --project-root . --limit-rows 50000
-```
-
-Smoke test scoring:
-
-```powershell
-python src/test.py --config src/configs/ucsd_ped2.yaml --project-root . --model src/outputs/models/ucsd_ped2 --limit-rows 50000
-```
-
-Smoke test visualization:
-
-```powershell
-python src/visualize.py --config src/configs/ucsd_ped2.yaml --project-root . --top-frames 5 --alerts --limit-frames 5
-```
-
-## 3. Chạy đầy đủ UCSD Ped2 theo đúng trình tự
-
-Bước 1, tiền xử lý train/test và xuất ARFF cho WEKA:
-
-```powershell
-python src/preprocess.py --config src/configs/ucsd_ped2.yaml --project-root . --export-arff
-```
-
-Output chính:
-
-```text
-src/outputs/preprocessed/ucsd_ped2/
-src/outputs/weka/ucsd_ped2_features_train.arff
-src/outputs/weka/ucsd_ped2_features_test.arff
-```
-
-Bước 2, thực hành WEKA 3.8.7 nếu cần SPEC 2:
-
-```text
-Mở WEKA 3.8.7 và làm theo src/doc/spec_2.md.
-Theo dõi tiến độ trong src/doc/spec_2_processed.md.
-```
-
-Bước 3, train mô hình phân cụm theo cell:
-
-```powershell
-python src/train.py --config src/configs/ucsd_ped2.yaml --project-root .
-```
-
-Output chính:
-
-```text
-src/outputs/models/ucsd_ped2/
-```
-
-Bước 4, test/scoring trên split test:
-
-```powershell
-python src/test.py --config src/configs/ucsd_ped2.yaml --project-root . --model src/outputs/models/ucsd_ped2
-```
-
-Output chính:
-
-```text
-src/outputs/results/ucsd_ped2/
-  cell_scores.csv
-  frame_scores.csv
-  alerts.json
-  scoring_stats.json
-```
-
-Bước 5, xuất ảnh top anomaly frames và alert peaks:
-
-```powershell
-python src/visualize.py --config src/configs/ucsd_ped2.yaml --project-root . --top-frames 30 --alerts
-```
-
-Output chính:
-
-```text
-src/outputs/visualizations/ucsd_ped2/
-```
-
-Bước 6, xuất video overlay cho một video test cụ thể:
-
-```powershell
-python src/visualize.py --config src/configs/ucsd_ped2.yaml --project-root . --video-id Test001 --start-frame 1 --end-frame 120 --write-video
-```
-
-## 4. Chạy UCSD Ped1
-
-Tiền xử lý:
-
-```powershell
-python src/preprocess.py --config src/configs/ucsd_ped1.yaml --project-root . --export-arff
-```
-
-Sau khi tiền xử lý xong, chạy train/test/visualize. Các phần `model`, `scoring`, `output.model_root` và `output.result_root` có default trong code nếu config chưa khai báo:
-
-```powershell
-python src/train.py --config src/configs/ucsd_ped1.yaml --project-root .
-python src/test.py --config src/configs/ucsd_ped1.yaml --project-root . --model src/outputs/models/ucsd_ped1
-python src/visualize.py --config src/configs/ucsd_ped1.yaml --project-root . --top-frames 30 --alerts
-```
-
-## 5. Chạy CUHK Avenue
-
-Tiền xử lý:
-
-```powershell
-python src/preprocess.py --config src/configs/avenue.yaml --project-root . --export-arff
-```
-
-Sau khi tiền xử lý xong, chạy train/test/visualize. Các phần `model`, `scoring`, `output.model_root` và `output.result_root` có default trong code nếu config chưa khai báo:
-
-```powershell
-python src/train.py --config src/configs/avenue.yaml --project-root .
-python src/test.py --config src/configs/avenue.yaml --project-root . --model src/outputs/models/avenue
-python src/visualize.py --config src/configs/avenue.yaml --project-root . --top-frames 30 --alerts
-```
-
-## 6. Lệnh tiện ích
-
-Xuất ARFF từ một file CSV feature đã có:
-
-```powershell
-python src/csv_to_arff.py --input src/outputs/preprocessed/ucsd_ped2/features_train.csv --output src/outputs/weka/ucsd_ped2_features_train.arff --relation ucsd_ped2_features_train
-```
-
-Chạy riêng UCSD bằng wrapper:
-
-```powershell
-python src/tool/preprocess_ucsd.py --ped ped2 --project-root . --export-arff
-python src/tool/preprocess_ucsd.py --ped ped1 --project-root . --export-arff
-```
-
-Chạy riêng Avenue bằng wrapper:
-
-```powershell
-python src/tool/preprocess_avenue.py --project-root . --export-arff
-```
-
-## 7. Thứ tự file output cần kiểm tra
-
-Sau tiền xử lý:
-
-```text
-src/outputs/preprocessed/{dataset}/features_train.csv
-src/outputs/preprocessed/{dataset}/features_test.csv
-src/outputs/preprocessed/{dataset}/grid.json
-src/outputs/preprocessed/{dataset}/preprocess_stats.json
-```
-
-Sau train:
-
-```text
-src/outputs/models/{dataset}/model_manifest.json
-src/outputs/models/{dataset}/cell_models.joblib
-src/outputs/models/{dataset}/cell_scalers.joblib
-src/outputs/models/{dataset}/thresholds.json
-src/outputs/models/{dataset}/feature_stats.json
-```
-
-Sau test:
-
-```text
-src/outputs/results/{dataset}/cell_scores.csv
-src/outputs/results/{dataset}/frame_scores.csv
-src/outputs/results/{dataset}/alerts.json
-src/outputs/results/{dataset}/scoring_stats.json
-```
-
-Sau visualize:
-
-```text
-src/outputs/visualizations/{dataset}/top_frames/
-src/outputs/visualizations/{dataset}/alerts/
-src/outputs/visualizations/{dataset}/videos/
-src/outputs/visualizations/{dataset}/visualization_index.json
-src/outputs/visualizations/{dataset}/visualization_stats.json
-src/outputs/visualizations/{dataset}/qualitative_report.md
-```
-</file>
-
-<file path="src/requirements.txt">
-# Runtime dependencies for the KPDL anomaly detection pipeline.
-#
-# Install from the repository root with:
-#   python -m pip install -r src/requirements.txt
-
-# Numeric arrays and feature processing.
-numpy>=1.24
-
-# Video/image IO, frame preprocessing, heatmap rendering, and MP4 export.
-opencv-python-headless>=4.8
-
-# YAML configuration files in src/configs/.
-PyYAML>=6.0
-
-# Per-cell MiniBatchKMeans and StandardScaler models.
-scikit-learn>=1.3
-
-# Model/scaler serialization.
-joblib>=1.3
-</file>
-
 <file path="src/tool/_common.py">
 from __future__ import annotations
 
@@ -10900,13 +12576,33 @@ scoring:
     - motion_density
     - brightness_mean
     - brightness_delta
-  cluster_weight: 0.80
+  cluster_weight: 0.65
   temporal_weight: 0.20
+  rare_token_weight: 0.10
+  rule_weight: 0.05
   top_k_cells: 5
   smoothing_window: 5
   alert_threshold_medium: 0.70
   alert_threshold_high: 0.90
   min_consecutive_alerts: 3
+
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
 
 visualization:
   output_root: "src/outputs/visualizations"
@@ -10921,6 +12617,432 @@ visualization:
   frame_source: "preprocessed"
   image_format: "png"
   video_fps: 10
+</file>
+
+<file path="src/doc/spec_1_processed.md">
+# SPEC 1 Processed - Trạng thái triển khai tiền xử lý UCSD và CUHK Avenue
+
+Tài liệu này đánh dấu các mục đã thực hiện từ `doc/spec_1.md`.
+
+Ngày cập nhật: 2026-05-26
+
+## 1. Tóm tắt trạng thái
+
+Đã tạo thư mục `src/` và triển khai pipeline tiền xử lý theo SPEC 1 ở mức MVP:
+
+- đọc UCSD Ped1/Ped2 dạng chuỗi frame `.tif`;
+- đọc CUHK Avenue dạng video `.avi`;
+- resize, grayscale, Gaussian blur tùy config;
+- tạo grid cố định;
+- tạo spatio-temporal cube;
+- trích xuất feature baseline bằng frame differencing;
+- xuất manifest, grid, feature CSV, stats JSON;
+- xuất ARFF cho WEKA;
+- tách entrypoint riêng cho UCSD và CUHK Avenue trong `src/tool/`;
+- đưa dataset SPEC 1 vào `src/dataset/`;
+- đưa output tiền xử lý mặc định vào `src/outputs/`;
+- chạy smoke test trên UCSD Ped1, UCSD Ped2 và CUHK Avenue;
+- thêm `.gitignore` để không commit dataset, output, archive và paper PDF ở root.
+
+Chưa chạy full preprocess toàn bộ UCSD Ped2 và toàn bộ Avenue trong bước này. Đã kiểm thử bằng giới hạn `1` video/sequence và `10-20` frame để xác nhận pipeline, schema và output.
+
+## 2. Output đã có
+
+Code chính:
+
+- [X] `src/preprocess.py`
+- [X] `src/csv_to_arff.py`
+- [X] `src/tool/preprocess_ucsd.py`
+- [X] `src/tool/preprocess_avenue.py`
+- [X] `src/kpdl_preprocess/`
+- [X] `src/configs/ucsd_ped2.yaml`
+- [X] `src/configs/ucsd_ped1.yaml`
+- [X] `src/configs/avenue.yaml`
+- [X] `src/requirements.txt`
+- [X] `src/README.md`
+- [X] `.gitignore`
+
+Dataset nội bộ `src`:
+
+- [X] `src/dataset/UCSD_Anomaly_Dataset.v1p2/`
+- [X] `src/dataset/CUHK-avenue/`
+
+Output smoke test:
+
+- [X] `src/outputs/preprocessed/ucsd_ped2/`
+- [X] `src/outputs/preprocessed/avenue/`
+- [X] `src/outputs/weka/ucsd_ped2_features_train.arff`
+- [X] `src/outputs/weka/ucsd_ped2_features_test.arff`
+- [X] `src/outputs/weka/avenue_features_train.arff`
+- [X] `src/outputs/weka/avenue_features_test.arff`
+
+Output cũ từng sinh ở project root đã được chuyển vào:
+
+- [X] `src/outputs/legacy_root_outputs/`
+
+## 3. Đánh dấu theo phạm vi SPEC 1
+
+### 3.1. Nằm trong phạm vi
+
+- [X] Đọc frame `.tif` của UCSD Ped1/Ped2.
+- [X] Đọc video `.avi` của CUHK Avenue.
+- [X] Resize frame về kích thước cấu hình.
+- [X] Chuyển grayscale.
+- [X] Làm trơn nhẹ bằng Gaussian blur nếu cấu hình bật.
+- [X] Chuẩn hóa độ sáng nhẹ nếu cấu hình bật.
+- [X] Chia frame thành grid cố định.
+- [X] Tạo spatio-temporal cube.
+- [X] Trích xuất feature chuyển động và ngữ cảnh cơ bản.
+- [X] Lưu feature và metadata.
+- [X] Kiểm tra số lượng frame, cube, cell và feature qua `preprocess_stats.json`.
+
+### 3.2. Ngoài phạm vi
+
+Các mục này chưa triển khai vì SPEC 1 xác định là ngoài phạm vi:
+
+- [ ] Train model phân cụm.
+- [ ] Tính anomaly score.
+- [ ] Khai phá association rules.
+- [ ] Vẽ heatmap kết quả bất thường.
+- [ ] Đánh giá ROC-AUC/EER.
+- [ ] Xử lý semantic object detection.
+
+## 4. Đánh dấu theo cấu hình đề xuất
+
+### 4.1. UCSD Ped2 baseline
+
+- [X] `data.dataset = ucsd_ped2`
+- [X] `data.root = src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2`
+- [X] `video.input_type = frame_sequence`
+- [X] `resize_width = 320`
+- [X] `resize_height = 240`
+- [X] `grayscale = true`
+- [X] `blur.enabled = true`
+- [X] `blur.kernel_size = 3`
+- [X] `brightness_normalization.enabled = false`
+- [X] `grid.rows = 12`
+- [X] `grid.cols = 16`
+- [X] `cube.length = 5`
+- [X] `cube.stride = 1`
+- [X] `motion_method = frame_diff`
+- [X] `frame_diff_threshold = 15`
+- [X] `direction_bins = 8`
+- [X] `use_brightness = true`
+- [X] `output.root = src/outputs/preprocessed`
+- [X] `output.weka_root = src/outputs/weka`
+
+File: `src/configs/ucsd_ped2.yaml`
+
+### 4.2. CUHK Avenue baseline
+
+- [X] `data.dataset = avenue`
+- [X] `data.root = src/dataset/CUHK-avenue`
+- [X] `video.input_type = video`
+- [X] `resize_width = 320`
+- [X] `resize_height = 240`
+- [X] `grayscale = true`
+- [X] `blur.enabled = true`
+- [X] `blur.kernel_size = 3`
+- [X] `brightness_normalization.enabled = false`
+- [X] `grid.rows = 12`
+- [X] `grid.cols = 16`
+- [X] `cube.length = 5`
+- [X] `cube.stride = 1`
+- [X] `motion_method = frame_diff`
+- [X] `frame_diff_threshold = 15`
+- [X] `direction_bins = 8`
+- [X] `use_brightness = true`
+- [X] `output.root = src/outputs/preprocessed`
+- [X] `output.weka_root = src/outputs/weka`
+
+File: `src/configs/avenue.yaml`
+
+## 5. Đánh dấu theo pipeline chung
+
+### Bước 1 - Quét dataset
+
+- [X] Tạo danh sách `dataset, split, video_id, source_path, input_type`.
+- [X] UCSD: mỗi thư mục `TrainXXX` hoặc `TestXXX` là một sequence.
+- [X] Avenue: mỗi file `.avi` là một video.
+- [X] Bỏ qua thư mục ground truth `_gt` khi trích xuất feature.
+
+Module: `src/kpdl_preprocess/datasets.py`
+
+### Bước 2 - Đọc frame
+
+UCSD:
+
+- [X] Đọc ảnh `.tif` theo thứ tự tăng dần.
+- [X] `frame_id` lấy từ tên file.
+- [X] `timestamp` gán theo thứ tự frame khi không có FPS.
+
+Avenue:
+
+- [X] Đọc `.avi` bằng `cv2.VideoCapture`.
+- [X] `frame_id` bắt đầu từ 1.
+- [X] `timestamp = frame_id / fps` nếu đọc được FPS, ngược lại để trống.
+
+Module: `src/kpdl_preprocess/readers.py`
+
+### Bước 3 - Chuẩn hóa frame
+
+- [X] Đọc frame RGB/BGR hoặc grayscale.
+- [X] Resize theo config.
+- [X] Chuyển grayscale.
+- [X] Blur nhẹ nếu bật.
+- [X] Chuẩn hóa độ sáng nếu bật.
+- [X] Lưu kích thước gốc và kích thước resize trong manifest.
+
+Module: `src/kpdl_preprocess/readers.py`
+
+### Bước 4 - Tạo grid
+
+- [X] Grid mặc định `rows = 12`, `cols = 16`.
+- [X] Với `320x240`, tạo `192` cell.
+- [X] Lưu `cell_id` dạng `row_col`, ví dụ `08_05`.
+- [X] Xuất `grid.json`.
+
+Module: `src/kpdl_preprocess/grid.py`
+
+### Bước 5 - Tạo cube
+
+- [X] Cube sliding window với `length = 5`, `stride = 1`.
+- [X] Công thức số cube đúng: `floor((N - length) / stride) + 1`.
+- [X] Không lưu ảnh cube ra đĩa.
+- [X] Lưu metadata cube trong từng dòng feature.
+
+Module: `src/kpdl_preprocess/pipeline.py`
+
+### Bước 6 - Trích xuất feature
+
+- [X] Tính chênh lệch tuyệt đối giữa các frame liên tiếp trong cube.
+- [X] Threshold để tạo motion mask.
+- [X] Tính feature theo từng cell.
+- [X] `foreground_ratio`
+- [X] `motion_magnitude_mean`
+- [X] `motion_magnitude_std`
+- [X] `motion_density`
+- [X] `direction_hist_0..7`
+- [X] `brightness_mean`
+- [X] `brightness_delta`
+
+Ghi chú: với `motion_method = frame_diff`, các cột `direction_hist_0..7` hiện được tạo và gán `0.0`, đúng với ghi chú trong SPEC 1 rằng direction histogram chưa đáng tin cậy nếu chưa dùng optical flow.
+
+Module: `src/kpdl_preprocess/features.py`
+
+### Bước 7 - Lưu feature
+
+- [X] `frames_manifest.csv`
+- [X] `videos_manifest.csv`
+- [X] `grid.json`
+- [X] `features_train.csv`
+- [X] `features_test.csv`
+- [X] `preprocess_stats.json`
+
+Đã xác nhận bằng smoke test tại:
+
+- `src/outputs/preprocessed/ucsd_ped2/`
+- `src/outputs/preprocessed/avenue/`
+
+ARFF mặc định lưu tại:
+
+- `src/outputs/weka/`
+
+### Bước 8 - Xuất ARFF cho WEKA
+
+- [X] Convert feature CSV sang ARFF.
+- [X] Giữ `cell_id` dạng nominal.
+- [X] Cột numeric giữ dạng numeric.
+- [X] Cột text dài như `dataset`, `split`, `video_id`, `cube_id` để dạng string.
+
+Module:
+
+- `src/kpdl_preprocess/arff.py`
+- `src/csv_to_arff.py`
+
+## 6. Đánh dấu theo kế hoạch riêng cho UCSD
+
+- [X] Ưu tiên UCSD Ped2 trước.
+- [X] Có script riêng `src/tool/preprocess_ucsd.py`.
+- [X] Hỗ trợ `--ped ped2` và `--ped ped1`.
+- [X] Dataset UCSD đã nằm trong `src/dataset/UCSD_Anomaly_Dataset.v1p2/`.
+- [X] Đọc các file `.tif` theo thứ tự tên file.
+- [X] Tên sequence là tên thư mục, ví dụ `Train001`, `Test001`.
+- [X] Không đọc thư mục `*_gt` trong tiền xử lý feature.
+- [X] Ground truth mask chưa dùng, đúng phạm vi SPEC 1.
+- [X] Lưu `videos_manifest.csv`.
+- [X] Lưu `frames_manifest.csv`.
+- [X] Không hard-code kích thước frame gốc.
+- [X] Smoke test UCSD Ped1 train với `1` sequence và `10` frame.
+- [X] Smoke test UCSD Ped2 train/test với `1` sequence mỗi split và `10` frame.
+- [X] Chạy full preprocess toàn bộ UCSD Ped2.
+- [ ] Mở rộng/chạy full UCSD Ped1.
+
+## 7. Đánh dấu theo kế hoạch riêng cho CUHK Avenue
+
+- [X] Có script riêng `src/tool/preprocess_avenue.py`.
+- [X] Dataset Avenue đã nằm trong `src/dataset/CUHK-avenue/`.
+- [X] Đọc `training_videos/*.avi`.
+- [X] Đọc `testing_videos/*.avi`.
+- [X] Bỏ qua `training_vol` và `testing_vol` trong MVP.
+- [X] Dùng OpenCV đọc từng frame.
+- [X] Lấy FPS, width, height từ `VideoCapture`.
+- [X] `video_id` lấy từ tên file không có đuôi, ví dụ `01`.
+- [X] Lưu `videos_manifest.csv`.
+- [X] Lưu `frames_manifest.csv`.
+- [X] Smoke test Avenue train/test với `1` video mỗi split và `10` frame.
+- [ ] Chạy full preprocess toàn bộ Avenue.
+- [ ] Nghiên cứu file `.mat` để lấy annotation sau.
+
+## 8. Kiểm tra chất lượng đầu ra
+
+Đã có các trường thống kê trong `preprocess_stats.json`:
+
+- [X] `dataset`
+- [X] `split`
+- [X] `num_videos`
+- [X] `num_frames`
+- [X] `num_cubes`
+- [X] `num_cells`
+- [X] `num_feature_rows`
+- [X] `missing_frames`
+- [X] `failed_videos`
+- [X] `avg_motion_density`
+- [X] `avg_brightness`
+
+Kết quả smoke test:
+
+- [X] UCSD Ped2 train/test đọc được `1` sequence mỗi split.
+- [X] UCSD Ped1 train đọc được `1` sequence.
+- [X] Avenue train/test đọc được `1` video mỗi split.
+- [X] Với `10` frame, `cube.length = 5`, `stride = 1`: mỗi split có `6` cube.
+- [X] Với `12 x 16 = 192` cell: mỗi split có `6 * 192 = 1152` dòng feature.
+- [X] `failed_videos = 0`.
+- [X] ARFF sinh được cho train/test của UCSD Ped2 và Avenue.
+- [X] Header `features_train.csv`, `frames_manifest.csv`, `videos_manifest.csv` của UCSD và Avenue khớp nhau sau khi chuyển output vào `src/outputs`.
+
+Chưa kiểm tra ở quy mô full:
+
+- [ ] Đọc toàn bộ video/sequence trong split.
+- [ ] So khớp frame manifest với toàn bộ frame thực tế.
+- [ ] Kiểm tra NaN trên toàn bộ feature CSV lớn.
+- [ ] Kiểm tra phân phối feature trên toàn bộ dataset.
+
+## 9. Checklist thực hiện từ SPEC 1
+
+- [X] Tạo config riêng cho `ucsd_ped2`.
+- [X] Tạo config riêng cho `ucsd_ped1`.
+- [X] Tạo config riêng cho `avenue`.
+- [X] Tách file chạy riêng cho UCSD.
+- [X] Tách file chạy riêng cho Avenue.
+- [X] Viết dataset scanner cho frame sequence và video.
+- [X] Viết frame reader cho UCSD.
+- [X] Viết video reader cho Avenue.
+- [X] Viết preprocess transform dùng chung.
+- [X] Viết grid generator.
+- [X] Viết cube iterator.
+- [X] Viết feature extractor baseline bằng frame differencing.
+- [X] Lưu manifest, grid và feature CSV.
+- [X] Tạo script convert CSV sang ARFF cho WEKA.
+- [X] Chạy smoke test trên 1 video/sequence mỗi dataset.
+- [X] Chuyển dataset UCSD và Avenue vào `src/dataset`.
+- [X] Chuyển output mặc định vào `src/outputs`.
+- [X] Thêm `.gitignore` cho dataset/output/PDF/archive/cache.
+- [X] Chạy full preprocess cho UCSD Ped2.
+- [ ] Chạy full preprocess cho Avenue.
+- [X] Ghi `preprocess_stats.json`.
+
+## 10. Tiêu chí hoàn thành SPEC 1
+
+- [ ] UCSD Ped2 có `features_train.csv` và `features_test.csv` full dataset.
+- [ ] Avenue có `features_train.csv` và `features_test.csv` full dataset.
+- [X] Mỗi feature row truy vết được về video/frame/cell/cube.
+- [X] UCSD và Avenue xuất cùng một schema chung qua `src/kpdl_preprocess/schema.py`.
+- [X] Có `grid.json` để dùng lại khi vẽ heatmap.
+- [X] Có `preprocess_stats.json` cho mỗi dataset trong smoke test.
+- [X] Có thể xuất ARFF để thử nghiệm WEKA.
+- [X] Pipeline có thể chạy lại bằng config mà không cần sửa code.
+- [X] Kết quả tiền xử lý mặc định nằm trong `src/outputs`.
+- [X] Dataset và output không bị commit nhờ `.gitignore`.
+
+## *Cài môi trường
+
+Tạo virtual environment:
+
+```powershell
+python -m venv .venv
+```
+
+Kích hoạt virtual environment trên PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Cài toàn bộ thư viện cần thiết:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+## 11. Lệnh đã dùng để kiểm thử (chỉ là bước test xem đầy đủ thư viện hoặc dataset ... chưa)
+
+```bash
+python tool/preprocess_ucsd.py --ped ped2 --limit-videos 1 --limit-frames 10 --export-arff
+```
+
+```bash
+python tool/preprocess_avenue.py --limit-videos 1 --limit-frames 10 --export-arff
+```
+
+```bash
+python tool/preprocess_ucsd.py --ped ped1 --split train --limit-videos 1 --limit-frames 10
+```
+
+## 12. Lệnh đề xuất để hoàn tất full preprocess (chạy cái này để tiền xử lý ra folder src/outputs)
+
+```bash
+python tool/preprocess_ucsd.py --ped ped2 --export-arff
+```
+
+```bash
+python tool/preprocess_avenue.py --export-arff
+```
+
+## 13. Quản lý dữ liệu và Git
+
+Đã thêm `.gitignore` để tránh commit các dữ liệu và artifact nặng:
+
+- [X] `/New folder/`
+- [X] `/dataset/`
+- [X] `/src/dataset/`
+- [X] `/outputs/`
+- [X] `/src/outputs/`
+- [X] `/*.pdf`
+- [X] `__pycache__/`
+- [X] `*.py[cod]`
+
+Đã kiểm tra bằng `git check-ignore`:
+
+- [X] `New folder`
+- [X] `dataset`
+- [X] `src/dataset`
+- [X] `src/outputs`
+- [X] các PDF paper ở project root.
+
+## 14. Cập nhật 2026-05-26 - Avenue full preprocess chạy lâu
+
+Spec gốc: `src/doc/spec_1.md`
+
+- [X] Kiểm tra lại luồng `src/tool/preprocess_avenue.py`: entrypoint chỉ gọi pipeline dùng chung, nguyên nhân nằm ở đọc video/ghi feature và việc thiếu log tiến độ.
+- [X] Probe toàn bộ CUHK Avenue: 16 video train, 21 video test, tổng `30652` frame; OpenCV đọc thô toàn bộ video kết thúc bình thường trong khoảng `9.37s`, không thấy file `.avi` bị đọc vô hạn.
+- [X] Thêm `--progress-every` cho `src/tool/_common.py` và `src/kpdl_preprocess/cli.py` để in tiến độ theo video/frame khi chạy full preprocess.
+- [X] Thêm guard trong `src/kpdl_preprocess/readers.py` dựa trên `CAP_PROP_FRAME_COUNT` cộng tolerance để tránh trường hợp `VideoCapture.read()` không tự kết thúc ở video lỗi.
+- [X] Cập nhật `src/kpdl_preprocess/pipeline.py` để log start/progress/done/fail từng video và ghi `missing_frames` khi số frame đọc được thấp hơn metadata.
+- [X] Verification: `python -m compileall src\kpdl_preprocess src\tool`
+- [X] Verification: `python src\tool\preprocess_avenue.py --limit-videos 1 --limit-frames 10 --output-root src\outputs\preprocessed_fix_smoke --export-arff --progress-every 5`
+- [ ] Chưa chạy full Avenue lại trong bước này vì full dataset sẽ tạo khoảng `5.85M` dòng feature trước khi export ARFF.
 </file>
 
 <file path="src/repomix-output.xml">
@@ -15218,6 +17340,28 @@ if __name__ == "__main__":
 </file>
 
 </files>
+</file>
+
+<file path="src/requirements.txt">
+# Runtime dependencies for the KPDL anomaly detection pipeline.
+#
+# Install from the repository root with:
+#   python -m pip install -r src/requirements.txt
+
+# Numeric arrays and feature processing.
+numpy>=1.24
+
+# Video/image IO, frame preprocessing, heatmap rendering, and MP4 export.
+opencv-python-headless>=4.8
+
+# YAML configuration files in src/configs/.
+PyYAML>=6.0
+
+# Per-cell MiniBatchKMeans and StandardScaler models.
+scikit-learn>=1.3
+
+# Model/scaler serialization.
+joblib>=1.3
 </file>
 
 </files>

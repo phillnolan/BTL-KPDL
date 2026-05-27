@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 SCHEMA_VERSION = "spec_3.anomaly.v1"
+RULE_SCHEMA_VERSION = "spec_5.rules.v1"
 
 METADATA_COLUMNS = [
     "dataset",
@@ -41,6 +42,16 @@ CELL_SCORE_COLUMNS = [
     "cluster_distance_score",
     "temporal_change_score",
     "cell_score",
+]
+
+RULE_SCORE_COLUMNS = [
+    "tokens",
+    "rare_token_score",
+    "rare_itemset",
+    "rare_itemset_support",
+    "rule_violation_score",
+    "violated_rules",
+    "token_rule_reasons",
 ]
 
 FRAME_SCORE_COLUMNS = [

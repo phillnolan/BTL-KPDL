@@ -119,6 +119,9 @@ def _reasons(record: dict[str, Any], severity: str, min_consecutive: int) -> lis
         nearest = int(top["nearest_cluster"])
         if nearest >= 0:
             reasons.append(f"nearest normal cluster is C{nearest}")
+        for reason in top.get("token_rule_reasons", []):
+            if reason:
+                reasons.append(str(reason))
     reasons.append(
         f"smoothed frame score met {severity} threshold for at least "
         f"{min_consecutive} consecutive frames"

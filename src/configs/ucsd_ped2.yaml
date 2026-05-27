@@ -54,13 +54,33 @@ scoring:
     - motion_density
     - brightness_mean
     - brightness_delta
-  cluster_weight: 0.80
+  cluster_weight: 0.65
   temporal_weight: 0.20
+  rare_token_weight: 0.10
+  rule_weight: 0.05
   top_k_cells: 5
   smoothing_window: 5
   alert_threshold_medium: 0.70
   alert_threshold_high: 0.90
   min_consecutive_alerts: 3
+
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
 
 visualization:
   output_root: "src/outputs/visualizations"

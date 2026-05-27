@@ -34,6 +34,24 @@ output:
   root: "src/outputs/preprocessed"
   weka_root: "src/outputs/weka"
 
+rules:
+  enabled: true
+  output_root: "src/outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
 visualization:
   output_root: "src/outputs/visualizations"
   colormap: "JET"

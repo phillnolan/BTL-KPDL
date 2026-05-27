@@ -11,12 +11,14 @@ from .scoring import score_features
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Score SPEC 3 anomaly models on test features.")
+    parser = argparse.ArgumentParser(description="Score SPEC 3/5 anomaly models on test features.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
     parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
     parser.add_argument("--model", default=None, help="Model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--result-root", default=None, help="Override result root.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit test feature rows for smoke tests.")
+    parser.add_argument("--rules", default=None, help="Rule artifact directory. Enables token/rule scoring.")
+    parser.add_argument("--no-rules", action="store_true", help="Disable token/rule scoring even if config enables it.")
     return parser
 
 
@@ -28,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
         model_dir=args.model,
         result_root=args.result_root,
         limit_rows=args.limit_rows,
+        rules_dir=args.rules,
+        use_rules=False if args.no_rules else (True if args.rules is not None else None),
     )
     print(json.dumps(_public_summary(summary), indent=2))
     return 0
@@ -39,6 +43,8 @@ def run_test(
     model_dir: str | Path | None = None,
     result_root: str | Path | None = None,
     limit_rows: int | None = None,
+    rules_dir: str | Path | None = None,
+    use_rules: bool | None = None,
 ) -> dict:
     config = load_anomaly_config(
         config_path=config_path,
@@ -46,7 +52,15 @@ def run_test(
         result_root=result_root,
     )
     resolved_model_dir = resolve_path(model_dir, config.project_root) if model_dir is not None else config.model_dir
-    return score_features(config, model_dir=resolved_model_dir, result_dir=config.result_dir, limit_rows=limit_rows)
+    resolved_rules_dir = resolve_path(rules_dir, config.project_root) if rules_dir is not None else None
+    return score_features(
+        config,
+        model_dir=resolved_model_dir,
+        result_dir=config.result_dir,
+        limit_rows=limit_rows,
+        rules_dir=resolved_rules_dir,
+        use_rules=use_rules,
+    )
 
 
 def _public_summary(summary: dict) -> dict:
@@ -57,4 +71,9 @@ def _public_summary(summary: dict) -> dict:
         "num_frames": summary["num_frames"],
         "severity_counts": summary["severity_counts"],
         "num_alerts": summary["num_alerts"],
+        "rules": {
+            "requested": summary.get("rules", {}).get("requested"),
+            "active": summary.get("rules", {}).get("active"),
+            "rule_dir": summary.get("rules", {}).get("rule_dir"),
+        },
     }
