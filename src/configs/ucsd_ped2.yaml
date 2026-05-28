@@ -59,7 +59,7 @@ scoring:
   rule_weight: 0.05
   top_k_cells: 5
   smoothing_window: 5
-  alert_threshold_medium: 0.67
+  alert_threshold_medium: 0.68216773
   alert_threshold_high: 0.90
   min_consecutive_alerts: 3
 
