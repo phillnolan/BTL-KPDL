@@ -7,8 +7,8 @@ from _common import PROJECT_ROOT, add_common_args, run_dataset
 
 
 CONFIGS = {
-    "ped2": PROJECT_ROOT / "src" / "configs" / "ucsd_ped2.yaml",
-    "ped1": PROJECT_ROOT / "src" / "configs" / "ucsd_ped1.yaml",
+    "ped2": PROJECT_ROOT / "configs" / "ucsd_ped2.yaml",
+    "ped1": PROJECT_ROOT / "configs" / "ucsd_ped1.yaml",
 }
 
 

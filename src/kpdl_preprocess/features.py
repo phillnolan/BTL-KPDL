@@ -87,7 +87,7 @@ def _farneback_motion(frames: np.ndarray, config: dict) -> tuple[np.ndarray, np.
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for Farneback optical flow. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
 
     params = dict(get_nested(config, "features", "farneback", default={}) or {})

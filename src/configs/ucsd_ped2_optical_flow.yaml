@@ -1,6 +1,6 @@
 data:
   dataset: "ucsd_ped2"
-  root: "src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
+  root: "dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
   train_path: "Train"
   test_path: "Test"
 
@@ -40,9 +40,9 @@ features:
     flags: 0
 
 output:
-  root: "src/outputs/preprocessed_spec7_flow"
-  model_root: "src/outputs/models_spec7_flow"
-  result_root: "src/outputs/results_spec7_flow"
+  root: "outputs/preprocessed_spec7_flow"
+  model_root: "outputs/models_spec7_flow"
+  result_root: "outputs/results_spec7_flow"
 
 model:
   type: "minibatch_kmeans"
@@ -82,7 +82,7 @@ scoring:
 
 rules:
   enabled: true
-  output_root: "src/outputs/rules_spec7_flow"
+  output_root: "outputs/rules_spec7_flow"
   model_dir: null
   algorithm: "bounded_apriori"
   min_support: 0.01
@@ -99,7 +99,7 @@ rules:
   rare_score_cap: 1.0
 
 visualization:
-  output_root: "src/outputs/visualizations_spec7_flow"
+  output_root: "outputs/visualizations_spec7_flow"
   colormap: "JET"
   alpha: 0.45
   heatmap_normalization: "per_frame"

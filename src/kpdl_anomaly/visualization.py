@@ -18,6 +18,9 @@ from .io import read_json, require_files, write_json
 from .qualitative import write_qualitative_report
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 @dataclass(frozen=True)
 class GridCell:
     cell_id: str
@@ -84,7 +87,7 @@ class VisualizationSettings:
 
 def run_visualization(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     result_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     top_frames: int | None = None,
@@ -449,7 +452,7 @@ def _settings(
     min_score: float | None,
 ) -> VisualizationSettings:
     raw = config.raw.setdefault("visualization", {})
-    output_root = raw.setdefault("output_root", "src/outputs/visualizations")
+    output_root = raw.setdefault("output_root", "outputs/visualizations")
     resolved_output = (
         resolve_path(output_dir, config.project_root)
         if output_dir is not None
@@ -702,6 +705,6 @@ def _cv2():
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for visualization. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
     return cv2

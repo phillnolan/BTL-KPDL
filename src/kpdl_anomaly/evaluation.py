@@ -121,7 +121,7 @@ def evaluate_results(
 
 
 def _default_evaluation_output_dir(config: AnomalyConfig) -> Path:
-    root = get_nested(config.raw, "evaluation", "output_root", default="src/outputs/evaluation")
+    root = get_nested(config.raw, "evaluation", "output_root", default="outputs/evaluation")
     return resolve_path(str(root), config.project_root) / config.dataset
 
 

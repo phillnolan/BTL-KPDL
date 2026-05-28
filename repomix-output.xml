@@ -46,10 +46,8 @@ src/configs/avenue.yaml
 src/configs/ucsd_ped1.yaml
 src/configs/ucsd_ped2_optical_flow.yaml
 src/configs/ucsd_ped2.yaml
-src/doc/code_mindmap_processed.md
-src/doc/code_mindmap.md
-src/doc/planning_direction.md
 src/doc/prd.md
+src/doc/preprocessing_data.md
 src/doc/spec_1_processed.md
 src/doc/spec_1.md
 src/doc/spec_3_processed.md
@@ -64,6 +62,7 @@ src/doc/spec_7_processed.md
 src/doc/spec_7.md
 src/doc/spec_9_processed.md
 src/doc/spec_9.md
+src/doc/src_runtime_root_processed.md
 src/evaluate.py
 src/explain.py
 src/kpdl_anomaly/__init__.py
@@ -116,52 +115,944 @@ src/visualize.py
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/doc/code_mindmap_processed.md">
-# Code Mindmap Processed - Pipeline cleanup
+<file path="src/doc/preprocessing_data.md">
+# Tài Liệu Chi Tiết Tiền Xử Lý Dữ Liệu
 
-Original spec path: `src/doc/code_mindmap.md`
+Tài liệu này giải thích luồng tiền xử lý dữ liệu theo code hiện tại. Mọi đường dẫn code và output trong tài liệu này được hiểu tương đối từ root `src/`. Ví dụ `kpdl_preprocess/pipeline.py` là file `kpdl_preprocess/pipeline.py` khi đang đứng trong root `src`.
 
-Processed at: `2026-05-29T03:04:09+07:00`
+## 1. Mục Tiêu Của Bước Tiền Xử Lý
+
+Tiền xử lý biến dữ liệu camera thô thành bảng đặc trưng có cấu trúc để các bước sau có thể huấn luyện phân cụm, khai phá luật, chấm điểm bất thường và vẽ heatmap.
+
+Input chính có hai dạng:
+
+- Chuỗi frame ảnh, ví dụ UCSD Ped1/Ped2 với các file `.tif`.
+- File video, ví dụ CUHK Avenue với các file `.avi`.
+
+Output chính là các file CSV/JSON trong `outputs/preprocessed/<dataset>/`. Code hiện tại không lưu lại ảnh/frame đã chuẩn hóa ra đĩa và không sinh ARFF cho WEKA.
+
+## 2. File Code Tham Gia Tiền Xử Lý
+
+| File                          | Vai trò |
+|-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `preprocess.py`               | Entrypoint mỏng khi chạy `python preprocess.py ...` từ root `src/`. File này thêm thư mục chứa nó vào `sys.path` rồi gọi CLI thật.  |
+| `kpdl_preprocess/cli.py`      | Định nghĩa tham số dòng lệnh và gọi `run_preprocess`.                                                                               |
+| `kpdl_preprocess/config.py`   | Đọc YAML, validate các section bắt buộc và resolve đường dẫn tương đối theo project root.                                           |
+| `kpdl_preprocess/datasets.py` | Quét dataset train/test để tạo danh sách `VideoSource`.                                                                             |
+| `kpdl_preprocess/readers.py`  | Đọc frame từ chuỗi ảnh hoặc video bằng OpenCV, resize, grayscale, blur, normalize sáng nếu bật.                                     |
+| `kpdl_preprocess/records.py`  | Định nghĩa dataclass `VideoSource`, `FrameRecord`, `CellRecord`.                                                                    |
+| `kpdl_preprocess/grid.py`     | Chia frame resize thành grid cell cố định và serialize sang `grid.json`.                                                            |
+| `kpdl_preprocess/features.py` | Trích xuất feature chuyển động, mật độ, hướng và độ sáng cho từng cube/cell.                                                        |
+| `kpdl_preprocess/schema.py`   | Định nghĩa schema cột cho manifest và feature CSV.                                                                                  |
+| `kpdl_preprocess/pipeline.py` | Điều phối toàn bộ quy trình: load config, tạo grid, quét dataset, đọc frame, tạo cube, ghi output.                                  |
+| `kpdl_preprocess/utils.py`    | Helper tạo thư mục, sort tự nhiên, parse frame id, parse boolean config.                                                            |
+| `tool/_common.py`             | Helper chung cho script tiện dụng theo dataset.                                                                                     |
+| `tool/preprocess_ucsd.py`     | Wrapper tiện dụng cho UCSD Ped1/Ped2.                                                                                               |
+| `tool/preprocess_avenue.py`   | Wrapper tiện dụng cho CUHK Avenue.                                                                                                  |
+
+## 3. Cách Chạy
+
+Chạy từ root `src/`:
+
+```bash
+python preprocess.py --config configs/ucsd_ped2.yaml
+```
+
+Các option được khai báo ở `kpdl_preprocess/cli.py`:
+
+| Option                | Ý nghĩa                                                       |
+|-----------------------|---------------------------------------------------------------|
+| `--config`            | Đường dẫn YAML config, bắt buộc.                              |
+| `--project-root`      | Root để resolve path dataset/output. Mặc định là thư mục `src`, nên có thể đứng trong `src` để chạy toàn bộ lệnh. |
+| `--output-root`       | Ghi đè `output.root` trong config.                            |
+| `--split train/test`  | Chỉ xử lý một split. Nếu bỏ trống sẽ xử lý cả train và test. |
+| `--limit-videos`      | Giới hạn số video/sequence mỗi split để smoke test. |
+| `--limit-frames`      | Giới hạn số frame mỗi video/sequence để smoke test.           |
+| `--progress-every`    | In tiến độ sau mỗi N frame. Đặt `0` để tắt.                   |
+
+Code hiện tại không còn option `--export-arff`.
+
+## 4. Cấu Hình Đầu Vào
+
+Ví dụ chính là `configs/ucsd_ped2.yaml`.
+
+Các section bắt buộc được validate trong `kpdl_preprocess/config.py`:
+
+| Section     | Trường quan trọng                                                                                   |
+|-------------|-----------------------------------------------------------------------------------------------------|
+| `data`      | `dataset`, `root`, `train_path`, `test_path`                                                        |
+| `video`     | `input_type`, `resize_width`, `resize_height`, `blur`, `brightness_normalization`                   |
+| `grid`      | `rows`, `cols`, `ignore_cells`                                                                      |
+| `cube`      | `length`, `stride`                                                                                  |
+| `features`  | `motion_method`, `frame_diff_threshold`, `direction_bins`, cấu hình Farneback nếu dùng optical flow |
+| `output`    | `root`, cùng các output root cho bước sau như model/result                                          |
+
+`video.input_type` chỉ nhận:
+
+- `frame_sequence`: dataset là nhiều thư mục ảnh.
+- `video`: dataset là các file video.
+
+`features.motion_method` hiện hỗ trợ:
+
+- `frame_diff` hoặc `frame_difference`.
+- `farneback`, `optical_flow` hoặc `flow`.
+
+## 5. Luồng Tổng Quát
+
+Luồng chính nằm trong `kpdl_preprocess/pipeline.py`, hàm `run_preprocess`.
+
+```mermaid
+flowchart TD
+    A["preprocess.py"] --> B["kpdl_preprocess.cli.main"]
+    B --> C["pipeline.run_preprocess"]
+    C --> D["config.load_config"]
+    C --> E["grid.generate_grid"]
+    C --> F["datasets.scan_dataset"]
+    F --> G["readers.iter_preprocessed_frames"]
+    G --> H["readers.preprocess_frame"]
+    H --> I["deque cube buffer"]
+    I --> J["features.extract_cube_features"]
+    J --> K["features_train.csv / features_test.csv"]
+    C --> L["grid.json"]
+    C --> M["frames_manifest.csv"]
+    C --> N["videos_manifest.csv"]
+    C --> O["preprocess_stats.json"]
+```
+
+Các bước thực thi:
+
+1. Đọc và validate YAML config.
+2. Resolve output directory: `output.root/<dataset>`.
+3. Tạo grid cell theo kích thước frame resize.
+4. Ghi `grid.json`.
+5. Quét train/test source từ dataset.
+6. Mở các file output CSV.
+7. Với từng source, đọc từng frame đã chuẩn hóa.
+8. Ghi metadata frame vào `frames_manifest.csv`.
+9. Đưa frame vào buffer dạng `deque` để tạo cube trượt.
+10. Khi đủ `cube.length`, trích feature cho mọi cell.
+11. Ghi feature vào `features_train.csv` hoặc `features_test.csv`.
+12. Ghi metadata source vào `videos_manifest.csv`.
+13. Tổng hợp thống kê và ghi `preprocess_stats.json`.
+
+## 6. Quét Dataset
+
+Code quét dataset nằm ở `kpdl_preprocess/datasets.py`.
+
+Hàm chính:
+
+- `scan_dataset(config, project_root, split_filter=None)`
+- `_scan_frame_sequences(...)`
+- `_scan_videos(...)`
+
+### 6.1. Dataset Dạng Frame Sequence
+
+Khi `video.input_type = "frame_sequence"`, code đi vào `_scan_frame_sequences`.
+
+Logic:
+
+- Vào `data.root / data.train_path` và `data.root / data.test_path`.
+- Mỗi thư mục con có file `.tif` được xem là một sequence.
+- Thư mục có đuôi `_gt` bị bỏ qua vì đó là ground truth, không phải input feature.
+- Tạo một `VideoSource` cho mỗi sequence.
+
+Ví dụ UCSD Ped2:
+
+```text
+dataset root:
+  dataset = ucsd_ped2
+  root = dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2
+
+train:
+  Train/Train001/*.tif
+  Train/Train002/*.tif
+
+test:
+  Test/Test001/*.tif
+  Test/Test001_gt/     <-- bỏ qua khi preprocess
+```
+
+### 6.2. Dataset Dạng Video
+
+Khi `video.input_type = "video"`, code đi vào `_scan_videos`.
+
+Các đuôi được nhận:
+
+```text
+.avi, .mp4, .mov, .mkv
+```
+
+Mỗi file video được biến thành một `VideoSource`:
+
+```text
+dataset, split, video_id, source_path, input_type
+```
+
+Với Avenue, `video_id` là tên file không có phần mở rộng.
+
+## 7. Các Record Nội Bộ
+
+Dataclass nằm ở `kpdl_preprocess/records.py`.
+
+### 7.1. VideoSource
+
+Đại diện cho một video hoặc một sequence ảnh.
+
+```text
+dataset
+split
+video_id
+source_path
+input_type
+```
+
+`VideoSource` là đơn vị input cấp cao nhất mà pipeline xử lý.
+
+### 7.2. FrameRecord
+
+Đại diện cho một frame sau khi đã đọc và chuẩn hóa.
+
+```text
+dataset
+split
+video_id
+frame_id
+timestamp
+source_path
+original_width
+original_height
+resized_width
+resized_height
+gray
+```
+
+Trường `gray` là ma trận ảnh grayscale sau resize/blur/normalize. Trường này chỉ dùng trong RAM để tạo cube và trích feature, không được ghi ra file ảnh.
+
+### 7.3. CellRecord
+
+Đại diện cho một ô trong grid.
+
+```text
+cell_id
+row
+col
+x1
+y1
+x2
+y2
+width
+height
+```
+
+`width` và `height` là property tính từ tọa độ.
+
+## 8. Đọc Và Chuẩn Hóa Frame
+
+Code nằm ở `kpdl_preprocess/readers.py`.
+
+Hàm điều phối:
+
+```text
+iter_preprocessed_frames(source, config, limit_frames=None)
+```
+
+Nếu source là frame sequence, gọi `_iter_frame_sequence`.
+Nếu source là video, gọi `_iter_video`.
+
+### 8.1. Đọc Chuỗi Ảnh
+
+Hàm `_iter_frame_sequence`:
+
+1. Lấy danh sách `*.tif`.
+2. Sort tự nhiên bằng `utils.sorted_natural`.
+3. Nếu có `limit_frames`, cắt danh sách theo giới hạn.
+4. Đọc từng ảnh bằng `cv2.imread(..., cv2.IMREAD_UNCHANGED)`.
+5. Gọi `preprocess_frame`.
+6. Trả về `FrameRecord`.
+
+`frame_id` được lấy từ số trong tên file bằng `utils.stem_to_frame_id`. Nếu tên file không có số, dùng fallback là index đọc.
+
+### 8.2. Đọc Video
+
+Hàm `_iter_video`:
+
+1. Mở video bằng `cv2.VideoCapture`.
+2. Đọc FPS và frame count hint nếu có.
+3. Tạo safety limit bằng `_video_safety_limit` để tránh đọc vô hạn khi metadata video lỗi.
+4. Lặp `cap.read()` từng frame.
+5. Dừng nếu hết video, vượt `limit_frames`, hoặc vượt safety limit.
+6. Gọi `preprocess_frame`.
+7. Trả về `FrameRecord`.
+
+`frame_id` của video bắt đầu từ `1`.
+
+`timestamp` được tính:
+
+```text
+timestamp = frame_index / fps
+```
+
+Nếu FPS không hợp lệ thì timestamp là `None`.
+
+### 8.3. Probe Video
+
+Hàm `probe_video` lấy metadata video trước khi xử lý:
+
+```text
+fps
+num_frames_hint
+original_width
+original_height
+```
+
+Các giá trị này được ghi vào `videos_manifest.csv` nếu lấy được.
+
+### 8.4. Chuẩn Hóa Frame
+
+Hàm `preprocess_frame` thực hiện:
+
+1. Lấy `resize_width`, `resize_height` từ config.
+2. Resize bằng `cv2.resize(..., interpolation=cv2.INTER_AREA)`.
+3. Nếu ảnh đã grayscale thì giữ nguyên.
+4. Nếu ảnh BGRA thì convert `BGRA2GRAY`.
+5. Nếu ảnh BGR thì convert `BGR2GRAY`.
+6. Ép kiểu về `uint8`.
+7. Nếu `video.blur.enabled = true`, áp dụng Gaussian blur.
+8. Nếu `video.brightness_normalization.enabled = true`, áp dụng `cv2.equalizeHist`.
+9. Trả về ảnh grayscale, width gốc, height gốc.
+
+Với config UCSD Ped2 hiện tại:
+
+```yaml
+video:
+  resize_width: 320
+  resize_height: 240
+  blur:
+    enabled: true
+    kernel_size: 3
+  brightness_normalization:
+    enabled: false
+```
+
+Nghĩa là mỗi frame được resize về `320x240`, chuyển grayscale, blur nhẹ `3x3`, và không cân bằng sáng.
+
+## 9. Tạo Grid Và Cell
+
+Code nằm ở `kpdl_preprocess/grid.py`.
+
+Hàm `generate_grid(width, height, rows, cols, ignore_cells=None)` chia frame resize thành lưới đều.
+
+Với config:
+
+```yaml
+grid:
+  rows: 12
+  cols: 16
+```
+
+Số cell:
+
+```text
+12 * 16 = 192 cell
+```
+
+Nếu frame resize là `320x240`, mỗi cell xấp xỉ:
+
+```text
+cell_width = 320 / 16 = 20 px
+cell_height = 240 / 12 = 20 px
+```
+
+`cell_id` có dạng:
+
+```text
+{row:02d}_{col:02d}
+```
+
+Ví dụ:
+
+- `00_00`: góc trên trái.
+- `00_15`: hàng đầu, cột cuối.
+- `11_00`: hàng cuối, cột đầu.
+- `11_15`: góc dưới phải.
+
+Nếu config có `ignore_cells`, các cell có id tương ứng sẽ bị bỏ qua khi tạo grid.
+
+Grid được ghi ra `grid.json` bằng `grid_to_json`.
+
+## 10. Tạo Spatio-Temporal Cube
+
+Cube được tạo trong `kpdl_preprocess/pipeline.py`, hàm `_process_source`.
+
+Pipeline dùng:
+
+```text
+buffer = deque(maxlen=cube_length)
+```
+
+Mỗi frame đọc được sẽ được append vào buffer. Khi buffer đủ `cube.length`, code xét điều kiện stride:
+
+```text
+start_index = num_frames - cube_length
+if start_index % cube_stride == 0:
+    tạo cube
+```
+
+Với config hiện tại:
+
+```yaml
+cube:
+  length: 5
+  stride: 1
+```
+
+Cube đầu tiên gồm frame `1..5`, cube thứ hai gồm frame `2..6`, cube thứ ba gồm frame `3..7`, v.v.
+
+Nếu một video có `N` frame, số cube lý tưởng là:
+
+```text
+num_cubes = floor((N - cube_length) / cube_stride) + 1
+```
+
+Với `length = 5`, `stride = 1`:
+
+```text
+num_cubes = N - 4
+```
+
+Mỗi cube sẽ được trích feature cho toàn bộ cell trong grid. Với 192 cell, mỗi cube tạo 192 dòng feature.
+
+`cube_id` có dạng:
+
+```text
+{video_id}_{start_frame_id:06d}_{end_frame_id:06d}
+```
+
+Ví dụ:
+
+```text
+Train001_000001_000005
+```
+
+## 11. Trích Xuất Feature
+
+Code nằm ở `kpdl_preprocess/features.py`, hàm `extract_cube_features`.
+
+Input:
+
+- `cube_id`
+- danh sách `FrameRecord` trong cube
+- danh sách `CellRecord`
+- config
+
+Output:
+
+- danh sách dict, mỗi dict là một dòng feature cho một `cube + cell`.
+
+### 11.1. Chuẩn Bị Frame Tensor
+
+Code stack ảnh grayscale thành numpy array:
+
+```text
+frames shape = [cube_length, resized_height, resized_width]
+```
+
+Với `cube.length = 5`, `resize = 320x240`:
+
+```text
+frames shape = [5, 240, 320]
+```
+
+### 11.2. Motion Method: Frame Difference
+
+Nếu `features.motion_method = frame_diff`, code tính:
+
+```text
+motion_values = abs(diff(frames, axis=0))
+motion_masks = motion_values > frame_diff_threshold
+direction_angles = None
+```
+
+Với `cube.length = 5`, `motion_values` có 4 lát thời gian vì chênh lệch được tính giữa các cặp frame liên tiếp.
+
+Vì frame difference chỉ đo mức thay đổi sáng, nó không cho hướng chuyển động thật. Do đó direction histogram trong mode này sẽ là các giá trị `0.0`.
+
+### 11.3. Motion Method: Farneback Optical Flow
+
+Nếu `features.motion_method = farneback`, code gọi `_farneback_motion`.
+
+Mỗi cặp frame liên tiếp được đưa vào:
+
+```text
+cv2.calcOpticalFlowFarneback(...)
+```
+
+Sau đó lấy:
+
+```text
+magnitude, angle = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+```
+
+Kết quả:
+
+- `motion_values`: độ lớn flow.
+- `direction_angles`: góc hướng chuyển động.
+- `motion_masks`: pixel có magnitude vượt `flow_magnitude_threshold`.
+
+Mode này có direction histogram thật và dùng được cho direction token ở bước rule.
+
+### 11.4. Feature Theo Từng Cell
+
+Với mỗi cell, code crop vùng ảnh:
+
+```text
+y1:y2, x1:x2
+```
+
+Sau đó tính:
+
+| Feature                 | Cách hiểu                                                                           |
+|-------------------------|-------------------------------------------------------------------------------------|
+| `foreground_ratio`      | Tỷ lệ pixel trong cell từng có chuyển động ở ít nhất một lát thời gian của cube.    |
+| `motion_density`        | Tỷ lệ pixel-thời gian trong cell vượt ngưỡng chuyển động.                           |
+| `motion_magnitude_mean` | Trung bình độ lớn chuyển động trong cell.                                           |
+| `motion_magnitude_std`  | Độ lệch chuẩn độ lớn chuyển động trong cell.                                        |
+| `brightness_mean`       | Độ sáng trung bình của cell ở frame giữa cube.                                      |
+| `brightness_delta`      | Độ sáng trung bình frame cuối trừ frame đầu trong cell.                             |
+| `direction_hist_0..N`   | Histogram hướng chuyển động, có trọng số theo magnitude; bằng 0 nếu không có angle. |
+
+Frame giữa cube được lấy bằng:
+
+```text
+center = cube[len(cube) // 2]
+```
+
+Với cube 5 frame, center là frame thứ 3 trong cube.
+
+## 12. Schema Feature CSV
+
+Schema nằm ở `kpdl_preprocess/schema.py`.
+
+Các cột feature:
+
+```text
+dataset
+split
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+cell_id
+cell_row
+cell_col
+foreground_ratio
+motion_magnitude_mean
+motion_magnitude_std
+motion_density
+direction_hist_0
+direction_hist_1
+direction_hist_2
+direction_hist_3
+direction_hist_4
+direction_hist_5
+direction_hist_6
+direction_hist_7
+brightness_mean
+brightness_delta
+```
+
+Số cột `direction_hist_*` phụ thuộc `features.direction_bins`. Config hiện tại dùng `8`, nên có `direction_hist_0` đến `direction_hist_7`.
+
+## 13. Output Sau Tiền Xử Lý
+
+Output mặc định theo config, nhìn từ root `src/`:
+
+```text
+outputs/preprocessed/<dataset>/
+```
+
+Ví dụ:
+
+```text
+outputs/preprocessed/ucsd_ped2/
+  grid.json
+  features_train.csv
+  features_test.csv
+  frames_manifest.csv
+  videos_manifest.csv
+  preprocess_stats.json
+```
+
+### 13.1. `grid.json`
+
+Sinh tại `kpdl_preprocess/pipeline.py` sau khi gọi `generate_grid`.
+
+Chức năng:
+
+- Lưu kích thước frame resize.
+- Lưu số rows/cols.
+- Lưu danh sách cell và tọa độ từng cell.
+- Là mapping để các bước sau biết `cell_id` nằm ở vùng nào trên ảnh.
+
+Nội dung logic:
+
+```text
+resized_width
+resized_height
+rows
+cols
+num_cells
+cells:
+  cell_id
+  row
+  col
+  x1
+  y1
+  x2
+  y2
+  width
+  height
+```
+
+Dùng bởi:
+
+- Bước visualization để vẽ heatmap đúng vị trí.
+- Bước explain/casebook để liên hệ cell bất thường với vùng ảnh.
+
+### 13.2. `features_train.csv`
+
+Sinh trong `kpdl_preprocess/pipeline.py` khi split là `train`.
+
+Chức năng:
+
+- Là dữ liệu feature dùng để học normal pattern.
+- Là input cho `train.py` và `rules.py`.
+- Mỗi dòng là một cell trong một cube.
+
+Quan hệ số dòng:
+
+```text
+num_rows = num_train_cubes * num_cells
+```
+
+Nếu có `ignore_cells`, `num_cells` là số cell còn lại sau khi bỏ qua.
+
+Ví dụ với 1 train sequence có 6 frame, `cube.length = 5`, `stride = 1`, `num_cells = 192`:
+
+```text
+num_cubes = 2
+num_feature_rows = 2 * 192 = 384
+```
+
+### 13.3. `features_test.csv`
+
+Sinh tương tự `features_train.csv`, nhưng cho split `test`.
+
+Chức năng:
+
+- Là dữ liệu feature để chấm điểm bất thường.
+- Là input cho `test.py`.
+- Có cùng schema với `features_train.csv`.
+
+Điểm quan trọng: train và test không bị trộn. Pipeline ghi riêng `features_train.csv` và `features_test.csv`.
+
+### 13.4. `frames_manifest.csv`
+
+Mỗi dòng tương ứng một frame đã đọc và chuẩn hóa.
+
+Schema nằm trong `FRAME_MANIFEST_COLUMNS` ở `kpdl_preprocess/schema.py`:
+
+```text
+dataset
+split
+video_id
+frame_id
+timestamp
+source_path
+original_width
+original_height
+resized_width
+resized_height
+```
+
+Chức năng:
+
+- Truy vết frame từ feature/result về file gốc.
+- Biết frame thuộc video/sequence nào.
+- Biết kích thước gốc và kích thước resize.
+- Debug các lỗi đọc thiếu frame.
+
+Với frame sequence, `source_path` là đường dẫn file ảnh `.tif`.
+Với video, `source_path` là đường dẫn file video.
+
+### 13.5. `videos_manifest.csv`
+
+Mỗi dòng tương ứng một video hoặc một frame sequence.
+
+Schema nằm trong `VIDEO_MANIFEST_COLUMNS` ở `kpdl_preprocess/schema.py`:
+
+```text
+dataset
+split
+video_id
+source_path
+input_type
+fps
+num_frames
+num_cubes
+original_width
+original_height
+failed
+error
+```
+
+Chức năng:
+
+- Tổng kết từng video/sequence đã xử lý.
+- Ghi số frame đọc được.
+- Ghi số cube tạo được.
+- Ghi FPS nếu input là video và đọc được metadata.
+- Ghi lỗi nếu source bị fail.
+
+Nếu một video/sequence lỗi, pipeline vẫn ghi một dòng với:
+
+```text
+failed = True
+error = nội dung exception
+```
+
+### 13.6. `preprocess_stats.json`
+
+Sinh cuối cùng trong `kpdl_preprocess/pipeline.py`.
+
+Chức năng:
+
+- Tổng kết toàn bộ lần chạy preprocess.
+- Lưu schema version.
+- Lưu danh sách cột output.
+- Lưu thông tin grid.
+- Lưu thống kê theo split.
+
+Nội dung chính:
+
+```text
+dataset
+generated_at
+config_path
+schema:
+  version
+  frames_manifest_columns
+  videos_manifest_columns
+  feature_columns
+grid:
+  rows
+  cols
+  num_cells
+  resized_width
+  resized_height
+splits:
+  train/test:
+    num_videos
+    num_frames
+    num_cubes
+    num_cells
+    num_feature_rows
+    missing_frames
+    failed_videos
+    avg_motion_density
+    avg_brightness
+output_dir
+```
+
+File này dùng để kiểm tra nhanh lần chạy có hợp lệ không.
+
+## 14. Công Thức Kiểm Tra Số Dòng Feature
+
+Với mỗi source:
+
+```text
+num_cubes = floor((num_frames - cube_length) / cube_stride) + 1
+```
+
+Nếu `num_frames < cube_length`, `num_cubes = 0`.
+
+Với mỗi split:
+
+```text
+num_feature_rows = tổng(num_cubes từng source) * num_cells
+```
+
+Ví dụ config UCSD Ped2:
+
+```text
+resize = 320x240
+grid = 12x16
+num_cells = 192
+cube.length = 5
+cube.stride = 1
+```
+
+Nếu một sequence có 200 frame:
+
+```text
+num_cubes = 200 - 4 = 196
+feature rows = 196 * 192 = 37632
+```
+
+## 15. Sự Khác Nhau Giữa Frame Sequence Và Video
+
+| Điểm                          | Frame sequence                                            | Video                                             |
+|-------------------------------|-----------------------------------------------------------|---------------------------------------------------|
+| Code đọc                      | `_iter_frame_sequence` trong `kpdl_preprocess/readers.py` | `_iter_video` trong `kpdl_preprocess/readers.py`  |
+| Input                         | Nhiều file `.tif` trong một thư mục                       | Một file `.avi/.mp4/.mov/.mkv`                    |
+| Frame id                      | Lấy từ tên file, fallback theo index                      | Tăng từ 1 theo thứ tự đọc                         |
+| Timestamp                     | `index - 1`                                               | `frame_index / fps` nếu FPS hợp lệ                |
+| Source path ở frame manifest  | File ảnh cụ thể                                           | File video                                        |
+| Probe metadata                | Không có FPS/frame count hint                             | Lấy FPS, frame count, width, height bằng OpenCV   |
+| Ground truth `_gt`            | Bỏ qua khi quét input                                     | Không áp dụng trong reader video                  |
+
+Sau khi đã thành `FrameRecord`, hai dạng input được xử lý giống nhau: resize, grayscale, tạo cube, chia cell và trích feature.
+
+## 16. Vì Sao Không Lưu Frame Đã Chuẩn Hóa
+
+Pipeline hiện tại không ghi ảnh grayscale đã resize ra đĩa. Lý do:
+
+- Bước train/test chỉ cần bảng feature CSV.
+- Lưu frame trung gian sẽ tốn dung lượng lớn.
+- Visualization có thể đọc lại frame từ dataset gốc và áp dụng cùng config khi cần.
+
+Mapping cần thiết để truy vết vẫn được lưu trong `frames_manifest.csv`, `videos_manifest.csv` và `grid.json`.
+
+## 17. Vì Sao Không Sinh ARFF
+
+Nhánh ARFF/WEKA đã được gỡ khỏi code hiện tại để pipeline tập trung vào đề tài chính: phân cụm theo cell, token/rule, scoring, visualization và explanation.
+
+Do đó sau preprocess hiện chỉ có:
+
+```text
+CSV + JSON manifest/stats
+```
+
+Không có:
+
+```text
+*.arff
+```
+
+Nếu trong workspace còn `outputs/weka/*.arff`, đó là artifact cũ, không phải output của code preprocess hiện tại.
+
+## 18. Liên Hệ Với Các Bước Sau
+
+Output preprocess được dùng như sau:
+
+| Output preprocess       | Bước dùng sau                                                                               |
+|-------------------------|---------------------------------------------------------------------------------------------|
+| `features_train.csv`    | `train.py` học MiniBatchKMeans theo cell; `rules.py` học token/rule từ dữ liệu bình thường. |
+| `features_test.csv`     | `test.py` chấm điểm bất thường cho từng cell/cube và frame.                                 |
+| `grid.json`             | `visualize.py` vẽ heatmap theo đúng vùng cell.                                              |
+| `frames_manifest.csv`   | Debug/truy vết frame và hỗ trợ kiểm tra dữ liệu đã đọc.                                     |
+| `videos_manifest.csv`   | Kiểm tra từng video/sequence có đọc đủ và tạo cube thành công không.                        |
+| `preprocess_stats.json` | Kiểm tra tổng quan schema, grid, số lượng frame/cube/feature row.                           |
+
+## 19. Checklist Kiểm Tra Sau Khi Chạy Preprocess
+
+Sau khi chạy xong, nên kiểm tra:
+
+- Có đủ 6 file output: `grid.json`, `features_train.csv`, `features_test.csv`, `frames_manifest.csv`, `videos_manifest.csv`, `preprocess_stats.json`.
+- `preprocess_stats.json` có `failed_videos = 0` hoặc lỗi được ghi rõ.
+- `num_feature_rows` xấp xỉ `num_cubes * num_cells`.
+- `features_train.csv` và `features_test.csv` có cùng header.
+- `foreground_ratio` và `motion_density` nằm trong khoảng `[0, 1]`.
+- `brightness_mean` nằm trong khoảng `[0, 255]`.
+- `grid.num_cells` khớp với số cell mong muốn, ví dụ `12 * 16 = 192`.
+- Nếu dùng `frame_diff`, `direction_hist_*` có thể toàn 0; đây là hành vi đúng của code hiện tại.
+- Nếu cần direction thật, dùng config optical flow như `configs/ucsd_ped2_optical_flow.yaml`.
+
+## 20. Ví Dụ Diễn Giải Một Dòng Feature
+
+Một dòng trong `features_train.csv` có thể hiểu là:
+
+```text
+dataset = ucsd_ped2
+split = train
+video_id = Train001
+cube_id = Train001_000001_000005
+start_frame_id = 1
+end_frame_id = 5
+center_frame_id = 3
+cell_id = 08_05
+cell_row = 8
+cell_col = 5
+foreground_ratio = ...
+motion_magnitude_mean = ...
+motion_magnitude_std = ...
+motion_density = ...
+direction_hist_0..7 = ...
+brightness_mean = ...
+brightness_delta = ...
+```
+
+Nghĩa là: trong video/sequence `Train001`, xét cửa sổ frame 1 đến 5, lấy ô grid hàng 8 cột 5, rồi đo mức chuyển động, mật độ chuyển động, hướng và độ sáng của vùng đó.
+
+Đây là đơn vị dữ liệu mà model sau này học normal pattern theo từng vùng camera.
+</file>
+
+<file path="src/doc/src_runtime_root_processed.md">
+# SRC Runtime Root Processed
+
+Original spec path: user request to run all commands from `src`.
+
+Processed at: `2026-05-29T04:06:55+07:00`
 
 ## Checklist
 
 - [Done] Read PRD before implementation.
 - [Done] Read root `repomix-output.xml`.
-- [Done] Read `src/doc/code_mindmap.md`.
-- [Done] Removed LaTeX/report generator files from the runtime codebase.
-- [Done] Removed ARFF/WEKA export files and CLI flags from preprocessing.
-- [Done] Removed evaluation comparison mode while keeping single-result metrics.
-- [Done] Removed historical WEKA/tuning/LaTeX-only spec files that no longer describe the active pipeline.
-- [Done] Updated `src/doc/code_mindmap.md` to match the remaining pipeline.
-- [Done] Run verification commands.
+- [Done] Inspected live CLI/config files that resolve dataset and output paths.
+- [Done] Updated configs so relative paths are rooted at `src` instead of `Project`.
+- [Done] Updated CLI defaults so `--project-root` resolves to the `src` directory.
+- [Done] Updated preprocessing documentation for the new runtime-root convention.
+- [Done] Run verification from inside `src`.
 - [Done] Refresh root `repomix-output.xml`.
 
 ## Files changed
 
-- `.gitignore`
-- `src/configs/*.yaml`
+- `src/configs/avenue.yaml`
+- `src/configs/ucsd_ped1.yaml`
+- `src/configs/ucsd_ped2.yaml`
+- `src/configs/ucsd_ped2_optical_flow.yaml`
+- `src/requirements.txt`
 - `src/kpdl_preprocess/cli.py`
-- `src/kpdl_preprocess/pipeline.py`
-- `src/tool/_common.py`
+- `src/kpdl_preprocess/config.py`
+- `src/kpdl_preprocess/features.py`
+- `src/kpdl_preprocess/readers.py`
+- `src/kpdl_anomaly/config.py`
+- `src/kpdl_anomaly/train.py`
+- `src/kpdl_anomaly/test.py`
 - `src/kpdl_anomaly/evaluate_cli.py`
 - `src/kpdl_anomaly/evaluation.py`
-- `src/doc/code_mindmap.md`
-- Removed `latex/`
-- Removed `src/csv_to_arff.py`, `src/kpdl_preprocess/arff.py`, `src/kpdl_preprocess/arff_cli.py`
-- Removed `src/report.py`, `src/kpdl_anomaly/reporting.py`
-- Removed obsolete docs: `src/doc/Kmean.md`, `src/doc/spec_2*.md`, `src/doc/spec_8*.md`, `src/doc/spec_10*.md`
-- Removed duplicate packed snapshot `src/repomix-output.xml`
+- `src/kpdl_anomaly/visualization.py`
+- `src/rules.py`
+- `src/visualize.py`
+- `src/explain.py`
+- `src/tool/_common.py`
+- `src/tool/preprocess_ucsd.py`
+- `src/tool/preprocess_avenue.py`
+- `src/doc/preprocessing_data.md`
+- `src/doc/src_runtime_root_processed.md`
 
 ## Verification
 
-- `python -m compileall src` passed.
-- `python src\preprocess.py --help` passed and no longer shows `--export-arff`.
-- `python src\evaluate.py --help` passed and no longer shows baseline/candidate comparison flags.
-- `python src\preprocess.py --config src\configs\ucsd_ped2.yaml --output-root src\outputs\cleanup_smoke --limit-videos 1 --limit-frames 6 --progress-every 0` passed and wrote CSV/manifest artifacts.
-- `python src\evaluate.py --config src\configs\ucsd_ped2.yaml --results src\outputs\results\ucsd_ped2 --output-dir src\outputs\evaluation\cleanup_smoke` passed for one result directory.
-- `git diff --check` passed with only existing LF-to-CRLF warnings from Git on Windows.
-- `repomix` PowerShell shim was blocked by execution policy, so `C:\Users\Dell\AppData\Roaming\npm\repomix.cmd` was used successfully.
-- Root `repomix-output.xml` was refreshed; removed files no longer appear as `<file path=...>` entries.
+- `python -m compileall kpdl_preprocess kpdl_anomaly preprocess.py train.py test.py rules.py visualize.py evaluate.py explain.py` passed from `src`.
+- CLI help passed from `src` for `preprocess.py`, `train.py`, `test.py`, `rules.py`, `visualize.py`, `evaluate.py`, `explain.py`, `tool\preprocess_ucsd.py`, and `tool\preprocess_avenue.py`.
+- `python preprocess.py --config configs\ucsd_ped2.yaml --limit-videos 1 --limit-frames 12 --progress-every 0` passed from `src` and wrote to `outputs\preprocessed\ucsd_ped2`.
+- `python train.py --config configs\ucsd_ped2.yaml --model-root outputs\src_root_models_smoke --limit-rows 1000` passed from `src`.
+- `python test.py --config configs\ucsd_ped2.yaml --model outputs\src_root_models_smoke\ucsd_ped2 --result-root outputs\src_root_results_smoke --limit-rows 1000 --no-rules` passed from `src`.
+- `python evaluate.py --config configs\ucsd_ped2.yaml --results outputs\src_root_results_smoke\ucsd_ped2 --output-dir outputs\src_root_evaluation_smoke` passed from `src`.
+- Removed accidental generated directory `src\src` from the previous bad path run.
+- `git diff --check` passed with only LF-to-CRLF warnings.
+- `C:\Users\Dell\AppData\Roaming\npm\repomix.cmd` passed and refreshed root `repomix-output.xml`.
 </file>
 
 <file path=".agents/skills/Dev/SKILL.md">
@@ -254,754 +1145,6 @@ In the final response, summarize:
 - Key files changed
 - Verification commands and results
 - Whether `repomix-output.xml` was refreshed
-</file>
-
-<file path=".gitignore">
-# Local datasets and downloaded archives
-/New folder/
-/dataset/
-/src/dataset/
-
-# Generated preprocessing outputs
-/outputs/
-/src/outputs/
-
-# External reference papers kept outside project docs
-/*.pdf
-
-# Generated report builds kept outside the runtime pipeline
-/latex/
-
-# Python runtime/cache files
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# OS/editor noise
-.DS_Store
-Thumbs.db
-</file>
-
-<file path="src/configs/ucsd_ped2_optical_flow.yaml">
-data:
-  dataset: "ucsd_ped2"
-  root: "src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
-  train_path: "Train"
-  test_path: "Test"
-
-video:
-  input_type: "frame_sequence"
-  resize_width: 320
-  resize_height: 240
-  grayscale: true
-  blur:
-    enabled: true
-    kernel_size: 3
-  brightness_normalization:
-    enabled: false
-
-grid:
-  rows: 12
-  cols: 16
-  ignore_cells: []
-
-cube:
-  length: 5
-  stride: 1
-
-features:
-  motion_method: "farneback"
-  frame_diff_threshold: 15
-  flow_magnitude_threshold: 0.2
-  direction_bins: 8
-  use_brightness: true
-  farneback:
-    pyr_scale: 0.5
-    levels: 3
-    winsize: 15
-    iterations: 3
-    poly_n: 5
-    poly_sigma: 1.2
-    flags: 0
-
-output:
-  root: "src/outputs/preprocessed_spec7_flow"
-  model_root: "src/outputs/models_spec7_flow"
-  result_root: "src/outputs/results_spec7_flow"
-
-model:
-  type: "minibatch_kmeans"
-  clusters_per_cell: 5
-  min_samples_per_cell: 50
-  batch_size: 1024
-  max_iter: 200
-  random_state: 10
-  threshold_percentile: 99.0
-  threshold_floor: 1.0e-9
-
-scoring:
-  feature_columns:
-    - foreground_ratio
-    - motion_magnitude_mean
-    - motion_magnitude_std
-    - motion_density
-    - direction_hist_0
-    - direction_hist_1
-    - direction_hist_2
-    - direction_hist_3
-    - direction_hist_4
-    - direction_hist_5
-    - direction_hist_6
-    - direction_hist_7
-    - brightness_mean
-    - brightness_delta
-  cluster_weight: 0.65
-  temporal_weight: 0.20
-  rare_token_weight: 0.10
-  rule_weight: 0.05
-  top_k_cells: 5
-  smoothing_window: 5
-  alert_threshold_medium: 0.70
-  alert_threshold_high: 0.90
-  min_consecutive_alerts: 3
-
-rules:
-  enabled: true
-  output_root: "src/outputs/rules_spec7_flow"
-  model_dir: null
-  algorithm: "bounded_apriori"
-  min_support: 0.01
-  min_confidence: 0.60
-  min_lift: 1.05
-  max_itemset_size: 3
-  max_rules: 200
-  include_cell_token: true
-  include_cluster_token: true
-  include_brightness_token: true
-  include_direction_token: true
-  rare_itemset_size: 3
-  rare_support_floor: 0.001
-  rare_score_cap: 1.0
-
-visualization:
-  output_root: "src/outputs/visualizations_spec7_flow"
-  colormap: "JET"
-  alpha: 0.45
-  heatmap_normalization: "per_frame"
-  draw_grid: false
-  draw_top_cells: true
-  top_cells_per_frame: 5
-  top_frames: 30
-  min_score: 0.70
-  frame_source: "preprocessed"
-  image_format: "png"
-  video_fps: 10
-</file>
-
-<file path="src/doc/code_mindmap.md">
-# Mindmap Code - Dự Án KPDL Anomaly Detection
-
-Tài liệu này dùng để rà soát kiến trúc code của repository. Phạm vi bao gồm source code, CLI wrapper, file cấu hình và file dependency runtime trong `src/`. Các file dataset, output sinh ra, PDF, file build LaTeX và `repomix-output.xml` được cố ý loại khỏi mindmap.
-
-## 1. Bức Tranh Tổng Quan
-
-```mermaid
-mindmap
-  root((Codebase KPDL anomaly))
-    Các entrypoint CLI
-      preprocess.py
-        chuyển tiếp sang kpdl_preprocess.cli
-        đọc config dataset
-        ghi CSV feature và manifest
-      train.py
-        chuyển tiếp sang kpdl_anomaly.train
-        train MiniBatchKMeans theo từng cell
-        ghi artifact model
-      rules.py
-        train artifact token và luật kết hợp
-        nối cluster của model vào transaction
-      test.py
-        chuyển tiếp sang kpdl_anomaly.test
-        chấm điểm feature test
-        ghi điểm theo frame và cell
-      visualize.py
-        render ảnh heatmap và video overlay
-      evaluate.py
-        tính ROC AUC PR AUC EER và summary
-      explain.py
-        tạo cluster profile rule evidence và casebook
-    Package tiền xử lý
-      config
-        load và validate YAML
-        resolve path
-      datasets
-        quét nguồn train và test
-        hỗ trợ chuỗi frame và video
-      readers
-        đọc bằng OpenCV
-        resize grayscale blur chuẩn hóa sáng
-      grid
-        sinh grid cell cố định
-      records
-        dataclass cho video frame cell
-      features
-        trích xuất feature từ cube
-        frame diff và Farneback motion
-      pipeline
-        điều phối toàn bộ tiền xử lý
-        ghi feature manifest stats
-      schema
-        hợp đồng cột CSV
-      utils
-        path natural sort frame id boolean config
-    Package phát hiện bất thường
-      config
-        chuẩn hóa AnomalyConfig
-        cấu hình rule và scoring
-      train và modeling
-        load feature train theo cell
-        scaler và MiniBatchKMeans theo cell
-        threshold và feature stats
-      rule_model association tokenization
-        fit bin rời rạc hóa
-        token transaction
-        itemset và rule
-      scoring test alerts smoothing thresholds
-        điểm khoảng cách cluster
-        điểm thay đổi theo thời gian
-        điểm token hiếm
-        điểm vi phạm rule
-        tổng hợp frame
-        đoạn cảnh báo
-      visualization frames qualitative
-        nạp lại frame đã tiền xử lý
-        render heatmap
-        ghi markdown định tính
-      evaluation evaluate_cli
-        label từ mask hoặc interval UCSD
-        metric kiểm tra một kết quả
-      explanations cluster_profiles casebook
-        giải thích ngôn ngữ dễ hiểu
-        profile normal pattern
-        case đại diện
-      io schema feature_selection
-        tiện ích dùng chung cho file và row
-    Config và runtime
-      avenue.yaml
-        config video CUHK Avenue
-      ucsd_ped1.yaml
-        config chuỗi frame UCSD Ped1
-      ucsd_ped2.yaml
-        config frame-diff chính cho UCSD Ped2
-      ucsd_ped2_optical_flow.yaml
-        biến thể Farneback optical-flow
-      requirements.txt
-        numpy OpenCV PyYAML scikit-learn joblib
-```
-
-## 2. Luồng Pipeline
-
-```mermaid
-flowchart TD
-    A["src/preprocess.py"] --> B["kpdl_preprocess.cli"]
-    B --> C["kpdl_preprocess.pipeline.run_preprocess"]
-    C --> D["datasets.scan_dataset"]
-    C --> E["grid.generate_grid"]
-    C --> F["readers.iter_preprocessed_frames"]
-    F --> G["readers.preprocess_frame"]
-    C --> H["features.extract_cube_features"]
-    C --> I["features_train.csv / features_test.csv"]
-    C --> J["frames_manifest.csv / videos_manifest.csv / preprocess_stats.json"]
-
-    L["src/train.py"] --> M["kpdl_anomaly.train.run_train"]
-    M --> N["io.load_features_by_cell"]
-    M --> O["modeling.train_per_cell"]
-    O --> P["thresholds.summarize_distances"]
-    M --> Q["cell_models.joblib / cell_scalers.joblib / thresholds.json"]
-
-    R["src/rules.py"] --> S["rule_model.train_rule_model"]
-    S --> T["tokenization.fit_token_bins"]
-    S --> U["tokenization.row_to_tokens"]
-    S --> V["association.update_itemset_counts"]
-    V --> W["association.generate_association_rules"]
-    S --> X["rules.json / itemsets.json / token_bins.json"]
-
-    Y["src/test.py"] --> Z["kpdl_anomaly.test.run_test"]
-    Z --> AA["scoring.score_features"]
-    AA --> AB["feature_selection.row_to_vector"]
-    AA --> AC["rule_scoring.load_rule_scorer"]
-    AC --> AD["RuleScorer.score"]
-    AA --> AE["smoothing.moving_average"]
-    AA --> AF["alerts.assign_severities và build_alerts"]
-    AA --> AG["cell_scores.csv / frame_scores.csv / alerts.json"]
-
-    AH["src/visualize.py"] --> AI["visualization.run_visualization"]
-    AI --> AJ["frames.load_preprocessed_frames"]
-    AI --> AK["visualization.render_overlay"]
-    AI --> AL["qualitative.write_qualitative_report"]
-
-    AM["src/evaluate.py"] --> AN["evaluation.evaluate_results"]
-    AN --> AO["Mask hoặc interval UCSD"]
-    AN --> AP["metrics.json / frame_labels.csv"]
-
-    AQ["src/explain.py"] --> AR["cluster_profiles.generate_cluster_profiles"]
-    AQ --> AS["explanations.write_rule_evidence_index"]
-    AQ --> AT["casebook.generate_casebook"]
-```
-
-## 3. File CLI Và Wrapper
-
-```mermaid
-mindmap
-  root((File CLI))
-    preprocess.py
-      wrapper rất mỏng
-      thêm src vào sys.path
-      gọi kpdl_preprocess.cli.main
-      command ưu tiên cho tiền xử lý tổng quát
-    train.py
-      wrapper rất mỏng
-      gọi kpdl_anomaly.train.main
-      train anomaly model từ CSV feature có sẵn
-    test.py
-      wrapper rất mỏng
-      gọi kpdl_anomaly.test.main
-      chấm điểm split test
-    evaluate.py
-      wrapper rất mỏng
-      gọi kpdl_anomaly.evaluate_cli.main
-      metric đánh giá cho một result
-    rules.py
-      CLI đầy đủ
-      override threshold rule
-      gọi train_rule_model
-      ghi artifact rule
-    visualize.py
-      CLI đầy đủ
-      chọn top frame alert hoặc khoảng frame
-      gọi run_visualization
-    explain.py
-      CLI đầy đủ
-      kết hợp cluster profile rule evidence casebook
-      có mode chỉ ghi cluster profile
-    tool
-      _common.py
-        option tiền xử lý dùng chung theo dataset
-      preprocess_ucsd.py
-        wrapper tiện dụng cho config UCSD Ped2
-      preprocess_avenue.py
-        wrapper tiện dụng cho config Avenue
-```
-
-### Ghi Chú Từng File
-
-| File | Vai trò | Hàm chính | Input chính | Output chính |
-|---|---|---|---|---|
-| `src/preprocess.py` | Wrapper thực thi tối giản cho tiền xử lý. | `main` import từ `kpdl_preprocess.cli` | CLI args | Exit code và summary tiền xử lý in ra terminal |
-| `src/train.py` | Wrapper thực thi tối giản cho train model. | `main` import từ `kpdl_anomaly.train` | CLI args | Artifact model dưới model root đã cấu hình |
-| `src/test.py` | Wrapper thực thi tối giản cho scoring. | `main` import từ `kpdl_anomaly.test` | CLI args | Artifact kết quả dưới result root đã cấu hình |
-| `src/evaluate.py` | Wrapper thực thi tối giản cho metric. | `main` import từ `kpdl_anomaly.evaluate_cli` | CLI args | Artifact evaluation |
-| `src/rules.py` | CLI khai phá luật có hỗ trợ override tham số. | `build_parser`, `main`, `run_rules`, `_with_overrides`, `_public_summary` | Config, model dir, override support/confidence/lift, giới hạn row | `rules.json`, `itemsets.json`, `token_bins.json`, summary JSON |
-| `src/visualize.py` | CLI visualization cho top frame, alert peak và overlay theo video/khoảng frame. | `build_parser`, `main`, `_public_summary` | Config, result dir, output dir, tham số chọn frame | Ảnh, MP4 overlay, index và stats |
-| `src/explain.py` | CLI analysis nối cluster profile, rule evidence và alert casebook. | `build_parser`, `main`, `run_explain`, `_cluster_only_manifest`, `_public_summary` | Config, model/rule/result/visualization dir | `cluster_profiles`, `rule_evidence_index`, `alert_casebook`, analysis manifest |
-| `src/tool/_common.py` | Helper dùng chung cho script preprocess theo dataset. | `add_common_args`, `run_dataset`, `_summary` | CLI args đã parse và config path | Summary của lần chạy preprocess |
-| `src/tool/preprocess_ucsd.py` | CLI tiện dụng cho tiền xử lý UCSD Ped2. | `build_parser`, `main` | Shared preprocess args | Artifact tiền xử lý UCSD Ped2 |
-| `src/tool/preprocess_avenue.py` | CLI tiện dụng cho tiền xử lý CUHK Avenue. | `build_parser`, `main` | Shared preprocess args | Artifact tiền xử lý Avenue |
-| `src/tool/__init__.py` | File đánh dấu package rỗng cho tool script. | none | none | Định danh import/package |
-
-## 4. Mindmap Package Tiền Xử Lý
-
-```mermaid
-mindmap
-  root((kpdl_preprocess))
-    config.py
-      ConfigError
-      load_config
-      validate các section YAML bắt buộc
-      helper get_nested
-      copy_config
-      resolve_path
-    datasets.py
-      scan_dataset
-      quét frame_sequence
-      quét video
-      bỏ qua folder *_gt
-      hỗ trợ avi mp4 mov mkv
-    readers.py
-      iter_preprocessed_frames
-      probe_video
-      _iter_frame_sequence
-      _iter_video
-      preprocess_frame
-      giới hạn an toàn khi đọc video
-      guard import OpenCV
-    grid.py
-      generate_grid
-      grid_to_json
-      cell cố định theo row col
-      hỗ trợ ignore cell
-    records.py
-      VideoSource
-      FrameRecord
-      CellRecord
-      width và height của cell
-    schema.py
-      schema version
-      cột frame manifest
-      cột video manifest
-      feature_columns
-    features.py
-      extract_cube_features
-      motion bằng frame_diff
-      Farneback optical flow
-      histogram hướng
-      feature brightness và density
-    pipeline.py
-      run_preprocess
-      quét source
-      tạo grid
-      trượt cube buffer
-      ghi CSV manifest stats
-      log tiến độ
-    cli.py
-      CLI tiền xử lý
-      summary JSON công khai
-    utils.py
-      ensure_dir
-      natural sort
-      parse frame id
-      parse bool config
-```
-
-### Ghi Chú Từng File
-
-| File | Vai trò | Hàm/class chính | Chi tiết quan trọng |
-|---|---|---|---|
-| `src/kpdl_preprocess/__init__.py` | File đánh dấu package và định danh nhẹ. | none | Giúp import code tiền xử lý bằng `kpdl_preprocess`. |
-| `src/kpdl_preprocess/config.py` | Loader và validator YAML cho tiền xử lý. | `ConfigError`, `load_config`, `_validate_config`, `get_nested`, `copy_config`, `resolve_path` | Validate các section như `data`, `video`, `grid`, `cube`, `features`, `output`; resolve path tương đối theo project root. |
-| `src/kpdl_preprocess/datasets.py` | Tìm nguồn video train/test từ config. | `scan_dataset`, `_scan_frame_sequences`, `_scan_videos` | Hỗ trợ `frame_sequence` và `video`; frame sequence hiện quét `*.tif`; video quét `.avi`, `.mp4`, `.mov`, `.mkv`. |
-| `src/kpdl_preprocess/readers.py` | Load frame thô và chuẩn hóa frame. | `_cv2`, `iter_preprocessed_frames`, `probe_video`, `_iter_frame_sequence`, `_iter_video`, `preprocess_frame`, `_video_safety_limit` | Dùng OpenCV, resize, chuyển grayscale, Gaussian blur tùy chọn, cân bằng histogram tùy chọn, timestamp frame và guard chống đọc video vô hạn. |
-| `src/kpdl_preprocess/grid.py` | Tạo grid không gian cố định. | `generate_grid`, `grid_to_json` | Sinh `CellRecord` có `cell_id`, row/col, bounding box; serialize metadata grid. |
-| `src/kpdl_preprocess/records.py` | Dataclass dùng chung trong tiền xử lý. | `VideoSource`, `FrameRecord`, `CellRecord.width`, `CellRecord.height` | Giữ metadata dataset/split/video, frame grayscale đã tiền xử lý và hình học cell. |
-| `src/kpdl_preprocess/schema.py` | Hợp đồng schema CSV cho output tiền xử lý. | `feature_columns` | Định nghĩa `FRAME_MANIFEST_COLUMNS`, `VIDEO_MANIFEST_COLUMNS`, cột feature cơ bản và mở rộng `direction_hist_*`. |
-| `src/kpdl_preprocess/features.py` | Chuyển cube không gian-thời gian thành feature row theo cell. | `extract_cube_features`, `_farneback_motion`, `_cell_direction_histogram`, `_safe_mean`, `_safe_std` | Trích xuất foreground ratio, motion mean/std/density, direction histogram, brightness mean/delta; hỗ trợ `frame_diff` và `farneback`. |
-| `src/kpdl_preprocess/pipeline.py` | Điều phối chính của bước tiền xử lý. | `run_preprocess`, `_process_source`, `_frame_manifest_row`, `_limit_sources_per_split`, `_new_stats`, `_empty_split_stats`, `_finalize_stats`, `_expected_frame_count` | Ghi `grid.json`, `features_train.csv`, `features_test.csv`, manifest và stats; dùng deque làm cube buffer. |
-| `src/kpdl_preprocess/cli.py` | CLI tiền xử lý tổng quát. | `build_parser`, `main`, `_public_stats` | Expose config, project root, split, limit và progress logging. |
-| `src/kpdl_preprocess/utils.py` | Helper nhỏ dùng chung. | `ensure_dir`, `natural_key`, `sorted_natural`, `stem_to_frame_id`, `bool_config` | Dùng khi quét dataset, tạo output, lấy frame id và ép kiểu config. |
-
-## 5. Mindmap Package Phát Hiện Bất Thường
-
-```mermaid
-mindmap
-  root((kpdl_anomaly))
-    cấu hình và schema
-      config.py
-        RulesConfig
-        AnomalyConfig
-        load_anomaly_config
-      schema.py
-        hằng số cột output
-        schema version
-      io.py
-        input JSON YAML job
-        load feature theo cell
-      feature_selection.py
-        row_to_vector
-    huấn luyện
-      train.py
-        triển khai CLI train
-        ghi model manifest
-      modeling.py
-        TrainingResult
-        train_per_cell
-        StandardScaler
-        MiniBatchKMeans
-      thresholds.py
-        summarize_distances
-        distance_to_score
-    luật
-      tokenization.py
-        fit_token_bins
-        row_to_tokens
-        token motion density brightness direction cluster
-      association.py
-        đếm itemset
-        luật kết hợp có giới hạn
-      rule_model.py
-        train_rule_model
-        nearest cluster cho mỗi transaction
-        ghi artifact rule
-      rule_scoring.py
-        RuleScorer
-        điểm token hiếm
-        điểm vi phạm rule
-    scoring và alert
-      test.py
-        triển khai CLI score
-      scoring.py
-        score_features
-        điểm trọng số cluster temporal rare rule
-        tổng hợp top-k frame
-      smoothing.py
-        moving_average
-      alerts.py
-        gán severity
-        tạo đoạn alert
-    visualization
-      frames.py
-        nạp lại frame đã tiền xử lý
-      visualization.py
-        GridSpec FrameScore FrameSelection
-        chọn top frame alert range
-        render_overlay
-        ghi ảnh và MP4
-      qualitative.py
-        báo cáo markdown định tính
-    evaluation
-      evaluate_cli.py
-        CLI evaluation
-      evaluation.py
-        FrameScoreRow LabelResult GroundTruthState
-        mask và interval UCSD
-        ROC AUC PR AUC EER
-    giải thích
-      cluster_profiles.py
-        mô tả cluster bình thường
-      explanations.py
-        rule evidence index
-        lý do dễ hiểu theo từng case
-      casebook.py
-        chọn case đại diện
-        markdown casebook
-```
-
-### Ghi Chú Từng File
-
-| File | Vai trò | Hàm/class chính | Chi tiết quan trọng |
-|---|---|---|---|
-| `src/kpdl_anomaly/__init__.py` | File đánh dấu package. | none | Giúp import các module anomaly bằng `kpdl_anomaly`. |
-| `src/kpdl_anomaly/config.py` | Chuyển YAML thô thành cấu hình anomaly có kiểu rõ hơn. | `RulesConfig`, `AnomalyConfig`, `load_anomaly_config`, `_positive_int`, `_probability` | Resolve feature path, model/result/rule/visualization/evaluation root, trọng số scoring, threshold alert và tham số rule. |
-| `src/kpdl_anomaly/schema.py` | Hợp đồng cột và schema cho output anomaly. | constants only | Định nghĩa schema version cho model/rule, cột metadata, feature mặc định, cột cell score, cột frame score và cột rule score. |
-| `src/kpdl_anomaly/io.py` | Utility IO và load feature dùng chung. | `FeatureLoadResult`, `require_files`, `read_json`, `write_json`, `write_config_yaml`, `validate_feature_header`, `load_features_by_cell`, `output_dir` | Gom validation file, ghi JSON, ghi snapshot YAML và load row train theo cell. |
-| `src/kpdl_anomaly/feature_selection.py` | Chuyển row CSV thành vector số. | `row_to_vector` | Trả `None` khi row có feature không hợp lệ/không phải số; dùng trong train/rule/scoring. |
-| `src/kpdl_anomaly/train.py` | Triển khai CLI train. | `build_parser`, `main`, `run_train`, `_expected_rows`, `_public_summary` | Load train features, train model theo cell, ghi `cell_models.joblib`, `cell_scalers.joblib`, `thresholds.json`, `feature_stats.json`, `model_manifest.json`. |
-| `src/kpdl_anomaly/modeling.py` | Logic train model thật theo từng cell. | `TrainingResult`, `train_per_cell`, `_fallback_threshold` | Fit `StandardScaler` và `MiniBatchKMeans` theo cell; xử lý cell ít mẫu/fallback; tính phân phối khoảng cách. |
-| `src/kpdl_anomaly/thresholds.py` | Tóm tắt phân phối khoảng cách và chuẩn hóa score. | `summarize_distances`, `distance_to_score` | Chuyển cluster distance thô thành anomaly score bị chặn theo threshold percentile. |
-| `src/kpdl_anomaly/test.py` | Triển khai CLI scoring. | `build_parser`, `main`, `run_test`, `_public_summary` | Resolve model/rule dir và chuyển tiếp sang `score_features`. |
-| `src/kpdl_anomaly/scoring.py` | Engine scoring bất thường chính. | `score_features`, `_validate_manifest`, `_score_weights`, `_score_row`, `_frame_records`, `_smooth_and_label`, `_stats` | Kết hợp cluster distance, temporal change, rare-token score và rule-violation score; tổng hợp top-k cell thành frame score; ghi `cell_scores.csv`, `frame_scores.csv`, `alerts.json`, `scoring_stats.json`. |
-| `src/kpdl_anomaly/smoothing.py` | Primitive làm mượt theo thời gian. | `moving_average` | Áp dụng moving average lên frame score trước khi gán alert. |
-| `src/kpdl_anomaly/alerts.py` | Chuyển frame score đã làm mượt thành đoạn cảnh báo. | `assign_severities`, `_mark_runs`, `_apply_run`, `build_alerts`, `_flush_segment`, `_reasons` | Yêu cầu vượt threshold liên tiếp; tạo lý do alert từ top cell, nearest cluster và token/rule reasons. |
-| `src/kpdl_anomaly/tokenization.py` | Rời rạc hóa feature thành token. | `fit_token_bins`, `row_to_tokens`, `_motion_bucket`, `_three_bucket`, `_brightness_delta_bucket`, `_direction_bucket`, `_cluster_label` | Tạo token cho cell, row, col, motion, density, brightness, brightness delta, direction và cluster tùy config. |
-| `src/kpdl_anomaly/association.py` | Đếm itemset có giới hạn và sinh luật kết hợp. | `update_itemset_counts`, `itemset_records`, `generate_association_rules`, `_position_only`, `_preferred_consequent` | Tạo record support/confidence/lift; lọc itemset chỉ mang thông tin vị trí kém hữu ích và ưu tiên consequent dễ diễn giải. |
-| `src/kpdl_anomaly/rule_model.py` | Train rule model từ feature train bình thường. | `train_rule_model`, `_validate_model_manifest`, `_nearest_cluster`, `_transaction_record`, `_token_schema`, `_token_stats`, `_warnings`, `_write_selected_rules` | Load cluster đã train để thêm token `cluster=Cx`; ghi itemset, rule, bin, token stats, transaction tùy chọn và markdown rule được chọn. |
-| `src/kpdl_anomaly/rule_scoring.py` | Load và áp dụng artifact rule trong lúc scoring. | `RuleScore`, `RuleLoadResult`, `RuleScorer`, `load_rule_scorer`, `_rare_candidates`, `_violation_reason` | Tính rare-token score từ itemset support thấp và rule-violation score từ consequent bị thiếu; trả về reason có thể giải thích. |
-| `src/kpdl_anomaly/frames.py` | Nạp lại frame đã tiền xử lý để visualization. | `LoadedFrame`, `FrameBatch`, `load_preprocessed_frames`, `ensure_preprocessed_frame_source` | Dùng scanner/reader của preprocessing để lấy đúng các frame được yêu cầu từ split test. |
-| `src/kpdl_anomaly/visualization.py` | Renderer heatmap và video overlay. | `GridCell`, `GridSpec`, `FrameScore`, `FrameSelection`, `VisualizationSettings`, `run_visualization`, `load_grid`, `load_frame_scores`, `select_top_frames`, `select_alert_peaks`, `select_video_range`, `render_overlay` | Chuyển cell score thành heatmap, blend lên frame, vẽ top cell/grid, ghi PNG, MP4 overlay, index, stats và qualitative report. |
-| `src/kpdl_anomaly/qualitative.py` | Ghi summary visualization ở dạng dễ đọc. | `write_qualitative_report`, `_append_top_frames`, `_append_alerts`, `_append_videos`, `_markdown_link` | Sinh markdown liệt kê artifact top frame, ảnh alert và video đã tạo. |
-| `src/kpdl_anomaly/evaluate_cli.py` | CLI cho evaluation một result. | `build_parser`, `main`, `_public_summary` | Tính metric frame-level từ `frame_scores.csv` và ground truth UCSD. |
-| `src/kpdl_anomaly/evaluation.py` | Engine đánh giá frame-level. | `FrameScoreRow`, `LabelResult`, `GroundTruthState`, `evaluate_results`, `_load_ground_truth_state`, `_binary_metrics`, `_threshold_metrics` | Load interval `.m` của UCSD và/hoặc pixel mask, gán label cho frame đã score, tính ROC-AUC, PR-AUC, EER, stats threshold và markdown summary. |
-| `src/kpdl_anomaly/cluster_profiles.py` | Chuyển cluster đã train thành profile normal pattern dễ diễn giải. | `TokenContext`, `generate_cluster_profiles`, `write_cluster_profiles_markdown`, `_inverse_centers`, `_cluster_record`, `_cluster_summary` | Inverse-transform centroid, gắn token context/support và mô tả cluster theo motion/density/brightness/cell. |
-| `src/kpdl_anomaly/explanations.py` | Tạo rule evidence và explanation record theo case. | `RuleEvidenceResult`, `write_rule_evidence_index`, `load_cluster_profile_index`, `load_frame_scores`, `load_alerts`, `load_cell_scores_for_frames`, `build_explanation_record` | Join frame/cell score, cluster profile, rare itemset, rule bị vi phạm và câu chữ dễ hiểu. |
-| `src/kpdl_anomaly/casebook.py` | Chọn case bất thường đại diện và ghi tài liệu casebook. | `generate_casebook`, `select_cases`, `write_casebook_markdown`, `_case_from_frame`, `_peak_frame_for_alert`, `_overlay_for_case`, `_analysis_manifest` | Chọn alert peak hoặc frame có score cao, link overlay, lưu placeholder review và evidence. |
-
-## 6. File Config Và Runtime
-
-```mermaid
-mindmap
-  root((configuration runtime))
-    configs
-      avenue.yaml
-        dataset avenue
-        input video
-        grid 12 x 16
-        feature path frame_diff
-      ucsd_ped1.yaml
-        dataset ucsd_ped1
-        input frame sequence
-        root preprocess
-      ucsd_ped2.yaml
-        config chính gần production
-        input frame sequence
-        model rules scoring visualization evaluation
-      ucsd_ped2_optical_flow.yaml
-        biến thể feature Farneback
-        bật direction token
-        output root riêng cho artifact flow
-    requirements.txt
-      numpy
-      opencv-python-headless
-      PyYAML
-      scikit-learn
-      joblib
-```
-
-### Ghi Chú Từng File
-
-| File | Vai trò | Section chính | Chi tiết quan trọng |
-|---|---|---|---|
-| `src/configs/avenue.yaml` | Cấu hình dataset CUHK Avenue. | `data`, `video`, `grid`, `cube`, `features`, `output` | Dùng input dạng video cho Avenue; hữu ích khi mở rộng pipeline từ UCSD sang nguồn video. |
-| `src/configs/ucsd_ped1.yaml` | Cấu hình dataset UCSD Ped1. | `data`, `video`, `grid`, `cube`, `features`, `output` | Tương tự setup preprocessing của Ped2 cho frame sequence, hữu ích khi mở rộng validation. |
-| `src/configs/ucsd_ped2.yaml` | Cấu hình end-to-end chính. | `data`, `video`, `grid`, `cube`, `features`, `output`, `model`, `scoring`, `rules`, `visualization`, `evaluation` | Điều khiển artifact MVP chính: feature frame-diff, MiniBatchKMeans, scoring có trọng số, rule scoring, heatmap và evaluation. |
-| `src/configs/ucsd_ped2_optical_flow.yaml` | Cấu hình optical-flow thay thế cho Ped2. | Giống Ped2 nhưng có thêm thiết lập Farneback | Bật feature/token có hướng mà không thay thế config frame-diff chính. |
-| `src/requirements.txt` | Danh sách dependency runtime Python. | dependency và minimum version | Bao phủ array, OpenCV IO/rendering, YAML, scikit-learn và joblib serialization. |
-
-## 7. Quan Hệ Phụ Thuộc Giữa Các File
-
-```mermaid
-flowchart LR
-    subgraph P["Preprocess"]
-      PC["config.py"]
-      PD["datasets.py"]
-      PR["readers.py"]
-      PG["grid.py"]
-      PF["features.py"]
-      PP["pipeline.py"]
-      PS["schema.py"]
-      PU["utils.py"]
-      PREC["records.py"]
-    end
-
-    subgraph A["Anomaly"]
-      AC["config.py"]
-      AI["io.py"]
-      AM["modeling.py"]
-      AT["thresholds.py"]
-      AR["rule_model.py"]
-      AAS["association.py"]
-      ATO["tokenization.py"]
-      AS["scoring.py"]
-      ASC["rule_scoring.py"]
-      AA["alerts.py"]
-      ASM["smoothing.py"]
-      AV["visualization.py"]
-      AF["frames.py"]
-      AE["evaluation.py"]
-      ACP["cluster_profiles.py"]
-      AX["explanations.py"]
-      ACK["casebook.py"]
-    end
-
-    PP --> PC
-    PP --> PD
-    PP --> PR
-    PP --> PG
-    PP --> PF
-    PD --> PREC
-    PR --> PREC
-    PG --> PREC
-    PF --> PREC
-    PC --> PU
-
-    AC --> PC
-    AI --> AC
-    AM --> AT
-    AR --> AAS
-    AR --> ATO
-    AR --> AI
-    AS --> AI
-    AS --> ASC
-    AS --> AA
-    AS --> ASM
-    AS --> AT
-    ASC --> ATO
-    AV --> AF
-    AV --> AI
-    AV --> AQUAL["qualitative.py"]
-    AF --> PD
-    AF --> PR
-    AE --> AI
-    ACP --> ATO
-    AX --> AI
-    ACK --> AX
-```
-
-## 8. Thứ Tự Đọc Cho Người Mới Vào Dự Án
-
-1. Đọc `src/doc/prd.md` để nắm ý định sản phẩm.
-2. Đọc `src/configs/ucsd_ped2.yaml` để hiểu cấu hình end-to-end đang dùng.
-3. Theo luồng tiền xử lý: `src/preprocess.py` -> `src/kpdl_preprocess/cli.py` -> `src/kpdl_preprocess/pipeline.py`.
-4. Theo luồng trích xuất feature: `src/kpdl_preprocess/readers.py`, `src/kpdl_preprocess/grid.py`, `src/kpdl_preprocess/features.py`.
-5. Theo luồng train model: `src/train.py` -> `src/kpdl_anomaly/train.py` -> `src/kpdl_anomaly/modeling.py`.
-6. Theo luồng rule: `src/rules.py` -> `src/kpdl_anomaly/rule_model.py` -> `src/kpdl_anomaly/tokenization.py` -> `src/kpdl_anomaly/association.py`.
-7. Theo luồng scoring: `src/test.py` -> `src/kpdl_anomaly/test.py` -> `src/kpdl_anomaly/scoring.py` -> `src/kpdl_anomaly/alerts.py`.
-8. Theo luồng output: `src/visualize.py`, `src/evaluate.py`, `src/explain.py`.
-
-## 9. Mô Hình Tư Duy Nhanh
-
-```mermaid
-mindmap
-  root((mô hình tư duy))
-    Dữ liệu vào
-      folder dataset
-      YAML config
-      reader frame/video
-    Bảng feature
-      một row cho mỗi cube mỗi cell
-      motion brightness density direction
-    Model bình thường
-      scaler theo cell
-      MiniBatchKMeans theo cell
-      threshold percentile
-    Rule model
-      token rời rạc
-      itemset
-      luật kết hợp
-    Scoring
-      khoảng cách cluster
-      thay đổi theo thời gian
-      itemset hiếm
-      vi phạm rule
-      top-k frame score
-      smoothing
-      đoạn alert
-    Trình bày kết quả
-      cell scores
-      frame scores
-      alert JSON
-      ảnh heatmap
-      metrics
-      explanations
-      casebook markdown/json
-```
-</file>
-
-<file path="src/doc/planning_direction.md">
-# Planning Direction
-
-Date: 2026-05-27
-
-## Current Preference
-
-Future specs should focus directly on the thesis topic:
-
-- spatio-temporal behavior clustering;
-- feature/token design for motion, direction, density, brightness, zone, and cluster identity;
-- association rule mining with Apriori or FP-Growth;
-- anomaly scoring that combines cluster distance with rare token and rule signals;
-- explanation text, heatmap/overlay artifacts, and report-ready examples.
-
-## What To Avoid
-
-Do not add new code whose main purpose is to compare variants or prove that one variant is better than another, including:
-
-- tuning leaderboards;
-- broad hyperparameter sweeps;
-- no-rules vs with-rules comparison workflows;
-- ablation runners whose main deliverable is a metric delta;
-- best-config selection based on test metrics.
-
-Existing evaluation code can remain available as a sanity check. For future planning, metrics should support the work quietly rather than become the center of the implementation.
-
-## Suggested Next Spec Shape
-
-The next spec should describe a direct research/product step, for example:
-
-- improve per-cell clustering interpretation and centroid summaries;
-- mine association rules from richer direction-aware transactions;
-- generate alert reasons that connect `cluster=Cx`, motion token, direction token, and rule support;
-- create report-ready qualitative cases with frame overlays and concise explanations;
-- document the final pipeline from preprocessing to clustering, rules, scoring, and visualization.
 </file>
 
 <file path="src/doc/spec_1.md">
@@ -1672,712 +1815,6 @@ Result:
 - SPEC 3 vẫn là baseline cluster/distance, chưa dùng `direction_hist_0..7`, token/rule, heatmap hoặc ground truth evaluation.
 - Một số frame có severity medium khá nhiều; cần SPEC sau hoặc bước phân tích định tính để chọn threshold/smoothing phù hợp hơn.
 - Smoke artifact/result được ghi vào `src/outputs/models_smoke` và `src/outputs/results_smoke`; các thư mục output đang nằm trong `.gitignore`.
-</file>
-
-<file path="src/doc/spec_3.md">
-# SPEC 3 - Pipeline Python phân cụm theo cell và anomaly scoring sau tiền xử lý
-
-## 1. Mục tiêu
-
-Tài liệu này mô tả bước triển khai tiếp theo sau khi giai đoạn tiền xử lý đã sinh feature CSV. Mục tiêu của SPEC 3 là chuyển từ dữ liệu đặc trưng đã chuẩn hóa sang một pipeline Python có thể chạy lặp lại để:
-
-- huấn luyện mô hình phân cụm hành vi bình thường theo từng cell;
-- tính khoảng cách của mỗi feature row tới cụm bình thường gần nhất;
-- chọn threshold theo phân phối train normal;
-- sinh anomaly score ở mức cell/cube và frame;
-- làm mượt score theo thời gian;
-- xuất kết quả phục vụ bước heatmap, alert, token/rule và đánh giá sau này.
-
-SPEC 3 ưu tiên UCSD Ped2 vì dữ liệu nhỏ hơn, đã có đầy đủ `features_train.csv`, `features_test.csv` và `preprocess_stats.json`.
-
-## 2. Liên hệ với PRD và các spec trước
-
-Theo PRD, giai đoạn sau tiền xử lý cần học normal pattern riêng theo vùng camera, sau đó dùng độ lệch so với normal pattern để tính bất thường. SPEC 1 đã tạo feature đầu vào. SPEC 3 triển khai nhánh Python tự động hóa để có thể train, test, lưu model, tính score và chạy lại bằng config.
-
-## 3. Trạng thái dữ liệu đầu vào hiện có
-
-Feature đầu vào mặc định:
-
-```text
-src/outputs/preprocessed/
-  ucsd_ped2/
-    features_train.csv
-    features_test.csv
-    grid.json
-    preprocess_stats.json
-  ucsd_ped1/
-    features_train.csv
-    features_test.csv
-    grid.json
-    preprocess_stats.json
-  avenue/
-    features_train.csv
-    features_test.csv
-    grid.json
-    preprocess_stats.json
-```
-
-Kích thước hiện tại theo `preprocess_stats.json`:
-
-```text
-UCSD Ped2 train:
-  videos: 16
-  frames: 2550
-  cubes: 2486
-  cells: 192
-  feature rows: 477312
-
-UCSD Ped2 test:
-  videos: 12
-  frames: 2010
-  cubes: 1962
-  cells: 192
-  feature rows: 376704
-
-UCSD Ped1 train:
-  videos: 34
-  frames: 6800
-  cubes: 6664
-  cells: 192
-  feature rows: 1279488
-
-UCSD Ped1 test:
-  videos: 36
-  frames: 7200
-  cubes: 7056
-  cells: 192
-  feature rows: 1354752
-
-Avenue train:
-  videos: 16
-  frames: 15328
-  cubes: 15264
-  cells: 192
-  feature rows: 2930688
-
-Avenue test:
-  videos: 21
-  frames: 15324
-  cubes: 15240
-  cells: 192
-  feature rows: 2926080
-```
-
-Schema feature đang dùng:
-
-```text
-dataset
-split
-video_id
-cube_id
-start_frame_id
-end_frame_id
-center_frame_id
-cell_id
-cell_row
-cell_col
-foreground_ratio
-motion_magnitude_mean
-motion_magnitude_std
-motion_density
-direction_hist_0..7
-brightness_mean
-brightness_delta
-```
-
-Baseline đầu tiên chỉ dùng các feature hành vi sau:
-
-```text
-foreground_ratio
-motion_magnitude_mean
-motion_magnitude_std
-motion_density
-brightness_mean
-brightness_delta
-```
-
-Không dùng `direction_hist_0..7` trong SPEC 3 baseline vì với `motion_method = frame_diff` các cột này hiện chưa mang thông tin hướng đáng tin cậy.
-
-## 4. Phạm vi
-
-### 4.1. Nằm trong phạm vi
-
-- Đọc feature CSV từ `src/outputs/preprocessed/{dataset}`.
-- Huấn luyện MiniBatchKMeans riêng cho từng `cell_id`.
-- Chuẩn hóa feature bằng scaler riêng cho từng cell.
-- Lưu model, scaler, centroid, threshold và metadata train.
-- Tính cluster distance cho train/test.
-- Chọn threshold theo percentile train của từng cell.
-- Tính `cluster_distance_score` theo từng cell/cube.
-- Tính `temporal_change_score` baseline theo lịch sử score cùng cell.
-- Tổng hợp thành `cell_score` và `frame_score`.
-- Làm mượt frame score bằng moving average hoặc EMA.
-- Sinh `frame_scores.csv`, `cell_scores.csv` và `alerts.json`.
-- Ghi log train/test đủ để tái hiện.
-
-### 4.2. Ngoài phạm vi
-
-- Heatmap overlay lên video.
-- ROC-AUC/EER hoàn chỉnh theo ground truth mask.
-- Tokenization và association rules production.
-- Optical flow hoặc direction histogram thật.
-- Dashboard hoặc realtime stream.
-- Tối ưu model nâng cao như GMM, Isolation Forest, DBSCAN.
-
-Các phần ngoài phạm vi nên đưa sang SPEC sau, sau khi SPEC 3 đã có score ổn định và có thể kiểm tra định tính.
-
-## 5. Kiến trúc module đề xuất
-
-Tạo package mới để tách rõ tiền xử lý và mô hình:
-
-```text
-src/kpdl_anomaly/
-  __init__.py
-  config.py
-  io.py
-  schema.py
-  feature_selection.py
-  modeling.py
-  thresholds.py
-  scoring.py
-  smoothing.py
-  alerts.py
-  train.py
-  test.py
-```
-
-Entrypoint đề xuất:
-
-```text
-src/train.py
-src/test.py
-```
-
-Hoặc nếu muốn giữ style hiện tại của `src/tool/`, có thể thêm:
-
-```text
-src/tool/train_anomaly.py
-src/tool/test_anomaly.py
-```
-
-Ưu tiên giữ CLI ngắn và tái dùng config:
-
-```bash
-python src/train.py --config src/configs/ucsd_ped2.yaml
-python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
-```
-
-## 6. Dependency cần bổ sung
-
-SPEC 3 cần thêm thư viện machine learning nhẹ:
-
-```text
-scikit-learn>=1.3
-joblib>=1.3
-```
-
-Nếu muốn đọc CSV lớn tiện hơn có thể thêm `pandas`, nhưng MVP nên cân nhắc đọc bằng `csv` chuẩn và gom theo cell bằng chunk/buffer để giảm dependency. Với UCSD Ped2, dùng `numpy` và `csv` là đủ.
-
-## 7. Cấu hình đề xuất
-
-Bổ sung các mục sau vào YAML dataset hiện có hoặc tạo file model riêng như `src/configs/ucsd_ped2_anomaly.yaml`:
-
-```yaml
-model:
-  type: "minibatch_kmeans"
-  clusters_per_cell: 5
-  min_samples_per_cell: 50
-  batch_size: 1024
-  max_iter: 200
-  random_state: 10
-  threshold_percentile: 99.0
-
-scoring:
-  feature_columns:
-    - foreground_ratio
-    - motion_magnitude_mean
-    - motion_magnitude_std
-    - motion_density
-    - brightness_mean
-    - brightness_delta
-  cluster_weight: 0.80
-  temporal_weight: 0.20
-  top_k_cells: 5
-  smoothing_window: 5
-  alert_threshold_medium: 0.70
-  alert_threshold_high: 0.90
-  min_consecutive_alerts: 3
-
-output:
-  model_root: "src/outputs/models"
-  result_root: "src/outputs/results"
-```
-
-Trong MVP, công thức score dùng:
-
-```text
-score = 0.80 * cluster_distance_score
-      + 0.20 * temporal_change_score
-```
-
-Khi token/rule đã sẵn sàng ở SPEC sau, có thể mở rộng:
-
-```text
-score = 0.65 * cluster_distance_score
-      + 0.20 * temporal_change_score
-      + 0.10 * rare_token_score
-      + 0.05 * rule_violation_score
-```
-
-## 8. Quy trình train
-
-### Bước 1 - Load config và input
-
-Đọc:
-
-```text
-src/outputs/preprocessed/{dataset}/features_train.csv
-src/outputs/preprocessed/{dataset}/grid.json
-src/outputs/preprocessed/{dataset}/preprocess_stats.json
-```
-
-Kiểm tra:
-
-- file tồn tại;
-- schema feature có đủ cột bắt buộc;
-- `split` trong train file là `train`;
-- số dòng đọc được khớp với `preprocess_stats.json` hoặc ghi warning rõ.
-
-### Bước 2 - Gom feature theo cell
-
-Với mỗi dòng train:
-
-1. lấy `cell_id`;
-2. lấy feature columns đã cấu hình;
-3. bỏ qua dòng có giá trị numeric không hợp lệ;
-4. thêm vector vào buffer của cell.
-
-MVP có thể load toàn bộ UCSD Ped2 train vào RAM. Với Avenue, cần hỗ trợ đọc streaming/chunk để không phụ thuộc vào RAM lớn.
-
-### Bước 3 - Train scaler và KMeans theo cell
-
-Với mỗi cell:
-
-1. nếu số mẫu `< min_samples_per_cell`, tạo fallback model;
-2. fit `StandardScaler` trên feature train của cell;
-3. transform feature;
-4. fit `MiniBatchKMeans`;
-5. tính khoảng cách từng mẫu train tới centroid gần nhất;
-6. lưu percentile distance làm threshold.
-
-Fallback cho cell ít dữ liệu:
-
-- dùng thống kê global train nếu có;
-- hoặc đánh dấu `model_status = insufficient_samples`;
-- score của cell đó dùng z-score đơn giản hoặc luôn thấp cho đến khi có đủ dữ liệu.
-
-### Bước 4 - Lưu model artifact
-
-Output đề xuất:
-
-```text
-src/outputs/models/{dataset}/
-  config.yaml
-  model_manifest.json
-  cell_models.joblib
-  cell_scalers.joblib
-  thresholds.json
-  feature_stats.json
-```
-
-`model_manifest.json` cần có:
-
-```text
-dataset
-trained_at
-schema_version
-feature_columns
-num_cells
-num_models_trained
-num_fallback_cells
-clusters_per_cell
-threshold_percentile
-train_feature_path
-grid_path
-```
-
-`thresholds.json` cần có:
-
-```text
-cell_id
-distance_mean
-distance_std
-distance_p95
-distance_p99
-threshold
-num_train_samples
-```
-
-## 9. Quy trình test/scoring
-
-### Bước 1 - Load model và feature test
-
-Đọc:
-
-```text
-src/outputs/models/{dataset}/
-src/outputs/preprocessed/{dataset}/features_test.csv
-```
-
-Kiểm tra model manifest khớp:
-
-- dataset;
-- schema version;
-- feature columns;
-- grid rows/cols nếu có lưu trong manifest.
-
-### Bước 2 - Tính cluster distance
-
-Với mỗi feature row:
-
-1. lấy model/scaler theo `cell_id`;
-2. chuẩn hóa vector;
-3. tìm centroid gần nhất;
-4. tính distance;
-5. chuẩn hóa distance thành `cluster_distance_score`.
-
-Công thức MVP:
-
-```text
-cluster_distance_score = min(distance / threshold, 2.0) / 2.0
-```
-
-Nếu `threshold <= 0`, dùng fallback:
-
-```text
-cluster_distance_score = 0.0 nếu distance gần 0
-cluster_distance_score = 1.0 nếu distance > 0
-```
-
-### Bước 3 - Tính temporal change
-
-Theo từng `(video_id, cell_id)`, giữ score trước đó:
-
-```text
-temporal_change_score = abs(current_cluster_score - previous_cluster_score)
-```
-
-Chuẩn hóa về `[0, 1]` bằng clipping. Với dòng đầu tiên của mỗi video/cell, đặt `temporal_change_score = 0.0`.
-
-### Bước 4 - Tính cell score
-
-```text
-cell_score = cluster_weight * cluster_distance_score
-           + temporal_weight * temporal_change_score
-```
-
-Clip `cell_score` về `[0, 1]`.
-
-### Bước 5 - Tổng hợp frame score
-
-Nhóm theo:
-
-```text
-dataset, split, video_id, center_frame_id
-```
-
-Lấy `top_k_cells` cell score cao nhất:
-
-```text
-frame_score = mean(top_k cell_score)
-```
-
-Nếu số cell ít hơn `top_k_cells`, lấy mean các cell có sẵn.
-
-### Bước 6 - Smoothing và alert
-
-Làm mượt `frame_score` theo từng video:
-
-```text
-smoothed_frame_score = moving_average(frame_score, window=smoothing_window)
-```
-
-Sinh severity:
-
-```text
-if smoothed_frame_score >= alert_threshold_high for >= min_consecutive_alerts:
-    severity = "high"
-elif smoothed_frame_score >= alert_threshold_medium for >= min_consecutive_alerts:
-    severity = "medium"
-else:
-    severity = "none"
-```
-
-## 10. Output kết quả
-
-Output mặc định:
-
-```text
-src/outputs/results/{dataset}/
-  cell_scores.csv
-  frame_scores.csv
-  alerts.json
-  scoring_stats.json
-```
-
-`cell_scores.csv`:
-
-```text
-dataset
-split
-video_id
-cube_id
-start_frame_id
-end_frame_id
-center_frame_id
-cell_id
-cell_row
-cell_col
-nearest_cluster
-cluster_distance
-cluster_threshold
-cluster_distance_score
-temporal_change_score
-cell_score
-```
-
-`frame_scores.csv`:
-
-```text
-dataset
-split
-video_id
-frame_id
-frame_score
-smoothed_frame_score
-severity
-top_cells
-```
-
-`alerts.json`:
-
-```json
-[
-  {
-    "dataset": "ucsd_ped2",
-    "video_id": "Test001",
-    "start_frame_id": 61,
-    "end_frame_id": 78,
-    "max_score": 0.93,
-    "severity": "high",
-    "top_cells": ["08_05", "08_06", "09_05"],
-    "reasons": [
-      "cell=08_05 cluster distance is above its train p99 threshold",
-      "frame score stayed high for 3 consecutive frames"
-    ]
-  }
-]
-```
-
-## 11. Reason text MVP
-
-SPEC 3 chưa làm token/rule đầy đủ, nhưng mỗi alert cần có reason tối thiểu:
-
-- cell nào có score cao nhất;
-- distance có vượt threshold train hay không;
-- nearest cluster là cluster nào;
-- score có kéo dài qua nhiều frame hay không.
-
-Ví dụ:
-
-```text
-cell=08_05 has cluster_distance=1.42 above train threshold=0.87
-nearest normal cluster is C3
-smoothed frame score exceeded high threshold for 4 consecutive frames
-```
-
-## 12. CLI đề xuất
-
-Train:
-
-```bash
-python src/train.py --config src/configs/ucsd_ped2.yaml
-```
-
-Train với override nhanh:
-
-```bash
-python src/train.py --config src/configs/ucsd_ped2.yaml --clusters-per-cell 5 --threshold-percentile 99
-```
-
-Test:
-
-```bash
-python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
-```
-
-Debug với giới hạn dòng:
-
-```bash
-python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --limit-rows 50000
-```
-
-## 13. Thí nghiệm bắt buộc
-
-### Experiment 1 - UCSD Ped2 per-cell KMeans K=5
-
-Input:
-
-```text
-src/outputs/preprocessed/ucsd_ped2/features_train.csv
-src/outputs/preprocessed/ucsd_ped2/features_test.csv
-```
-
-Config:
-
-```text
-clusters_per_cell = 5
-threshold_percentile = 99
-feature_columns = foreground_ratio, motion_magnitude_mean, motion_magnitude_std, motion_density, brightness_mean, brightness_delta
-```
-
-Kết quả cần có:
-
-- model cho đủ 192 cell hoặc fallback rõ cho cell thiếu mẫu;
-- `frame_scores.csv`;
-- `alerts.json`;
-- thống kê số frame vượt ngưỡng medium/high.
-
-### Experiment 2 - So sánh threshold percentile
-
-Chạy:
-
-```text
-threshold_percentile = 95, 97.5, 99
-```
-
-Ghi:
-
-- số alert;
-- số frame severity medium/high;
-- phân phối score train/test;
-- nhận xét threshold nào ít nhiễu hơn.
-
-### Experiment 3 - So sánh K
-
-Chạy:
-
-```text
-clusters_per_cell = 3, 5, 8
-```
-
-Ghi:
-
-- train distance mean/std/p99;
-- số cell có cụm quá nhỏ;
-- thời gian train/test;
-- nhận xét khả năng giải thích.
-
-### Experiment 4 - Chạy Avenue hoặc UCSD Ped1 sau khi Ped2 ổn
-
-Chỉ chạy sau khi UCSD Ped2 hoàn thành, vì dữ liệu lớn hơn. Cần log runtime và RAM nếu có thể.
-
-## 14. Tiêu chí đánh giá
-
-Một lần chạy SPEC 3 được xem là đạt khi:
-
-- train hoàn tất trên UCSD Ped2 không lỗi;
-- có model artifact đầy đủ trong `src/outputs/models/ucsd_ped2`;
-- test hoàn tất trên UCSD Ped2 không lỗi;
-- `cell_scores.csv` và `frame_scores.csv` truy vết được về `video_id`, `cube_id`, `frame_id`, `cell_id`;
-- score nằm trong khoảng `[0, 1]` sau clipping;
-- `alerts.json` có reason tối thiểu;
-- cấu hình và model manifest đủ để chạy lại;
-- runtime không phụ thuộc thao tác thủ công trong WEKA.
-
-## 15. Rủi ro và giảm thiểu
-
-### 15.1. Dữ liệu lớn gây tốn RAM
-
-Rủi ro: Avenue có gần 3 triệu dòng mỗi split, load toàn bộ có thể tốn RAM.
-
-Giảm thiểu:
-
-- ưu tiên UCSD Ped2;
-- đọc CSV theo chunk;
-- train từng cell hoặc gom từng cell ra file tạm nếu cần;
-- chỉ export score cần thiết, tránh giữ toàn bộ object lớn trong RAM.
-
-### 15.2. Cell ít chuyển động tạo threshold quá nhỏ
-
-Rủi ro: cell gần như đứng yên có train distance rất nhỏ, một nhiễu nhẹ cũng tạo score cao.
-
-Giảm thiểu:
-
-- dùng threshold floor;
-- dùng `min_samples_per_cell`;
-- thêm `motion_density` floor trước khi alert;
-- yêu cầu smoothing và consecutive frames.
-
-### 15.3. Feature frame_diff thiếu hướng chuyển động
-
-Rủi ro: model chưa phát hiện tốt bất thường do sai hướng.
-
-Giảm thiểu:
-
-- ghi rõ SPEC 3 là baseline cluster/distance;
-- không dùng direction hist zero trong model;
-- tạo SPEC sau cho Farneback optical flow hoặc hướng chuyển động thật.
-
-### 15.4. Không có ground truth trong scoring MVP
-
-Rủi ro: chỉ nhìn score/alert chưa biết đúng sai định lượng.
-
-Giảm thiểu:
-
-- lưu output truy vết đầy đủ;
-- chuẩn bị SPEC sau cho evaluation với mask UCSD;
-- kiểm tra định tính bằng các frame top score trước.
-
-## 16. Checklist triển khai
-
-- [ ] Bổ sung dependency `scikit-learn` và `joblib`.
-- [ ] Tạo package `src/kpdl_anomaly/`.
-- [ ] Tạo loader đọc feature CSV và validate schema.
-- [ ] Tạo feature selector bỏ metadata và direction histogram baseline.
-- [ ] Tạo train per-cell scaler + MiniBatchKMeans.
-- [ ] Tạo threshold percentile theo train distance.
-- [ ] Lưu model artifact bằng joblib/JSON.
-- [ ] Tạo test scorer đọc model và feature test.
-- [ ] Xuất `cell_scores.csv`.
-- [ ] Tổng hợp `frame_scores.csv` bằng top-k mean.
-- [ ] Thêm smoothing theo video.
-- [ ] Sinh `alerts.json` với reason tối thiểu.
-- [ ] Thêm CLI `src/train.py`.
-- [ ] Thêm CLI `src/test.py`.
-- [ ] Chạy smoke test với `--limit-rows`.
-- [ ] Chạy full UCSD Ped2 train/test.
-- [ ] Ghi `src/doc/spec_3_processed.md`.
-
-## 17. Tiêu chí hoàn thành SPEC 3
-
-SPEC 3 hoàn thành khi:
-
-- UCSD Ped2 train/test chạy được end-to-end bằng CLI Python;
-- output model và result nằm đúng cấu trúc;
-- có log hoặc processed file ghi rõ cấu hình K, threshold percentile, số cell train thành công, số fallback cell;
-- có ít nhất một file `frame_scores.csv` và `alerts.json` dùng được cho bước visualization;
-- có verification bằng smoke test và full Ped2;
-- không cần mở WEKA để tính score.
-
-## 18. Hướng sau SPEC 3
-
-Sau SPEC 3, bước tiếp theo nên là:
-
-- SPEC 4: heatmap overlay và kiểm tra định tính top anomaly frames;
-- SPEC 5: tokenization, rare token score và association rules trong Python;
-- SPEC 6: evaluation ROC-AUC/EER với ground truth UCSD;
-- SPEC 7: optical flow hoặc direction feature thật để bắt bất thường sai hướng.
 </file>
 
 <file path="src/doc/spec_4.md">
@@ -4306,10 +3743,17 @@ from kpdl_anomaly.explanations import RuleEvidenceResult, write_rule_evidence_in
 from kpdl_anomaly.io import write_json
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build SPEC 9 cluster profiles and alert casebook artifacts.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="Model artifact directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--rules", default=None, help="Rule artifact directory. Defaults to rules.output_root/dataset.")
     parser.add_argument("--results", default=None, help="Result artifact directory. Defaults to output.result_root/dataset.")
@@ -4362,12 +3806,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_explain(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     rules_dir: str | Path | None = None,
     result_dir: str | Path | None = None,
     visualizations_dir: str | Path | None = None,
-    output_dir: str | Path = "src/outputs/analysis/default",
+    output_dir: str | Path = "outputs/analysis/default",
     top_alerts: int | None = None,
     top_frames: int | None = None,
     video_id: str | None = None,
@@ -4454,7 +3898,7 @@ def run_explain(
 
 def _default_visualization_dir(config: Any) -> Path:
     raw = config.raw.setdefault("visualization", {})
-    output_root = str(raw.setdefault("output_root", "src/outputs/visualizations"))
+    output_root = str(raw.setdefault("output_root", "outputs/visualizations"))
     return resolve_path(output_root, config.project_root) / config.dataset
 
 
@@ -5548,574 +4992,6 @@ def _dedupe(items: list[str]) -> list[str]:
     return result
 </file>
 
-<file path="src/kpdl_anomaly/evaluate_cli.py">
-from __future__ import annotations
-
-import argparse
-import json
-from pathlib import Path
-
-from kpdl_preprocess.config import resolve_path
-
-from .config import load_anomaly_config
-from .evaluation import evaluate_results
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Evaluate frame-level anomaly metrics for one pipeline result.")
-    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
-    parser.add_argument("--results", default=None, help="Single result directory to evaluate.")
-    parser.add_argument("--output-dir", default=None, help="Directory for evaluation artifacts.")
-    parser.add_argument(
-        "--score-columns",
-        nargs="+",
-        default=None,
-        help="Frame score columns to evaluate. Defaults to evaluation.score_columns.",
-    )
-    parser.add_argument(
-        "--label-source",
-        choices=["auto", "mask", "interval"],
-        default=None,
-        help="Ground-truth source. Defaults to evaluation.label_source.",
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    config = load_anomaly_config(config_path=args.config, project_root=args.project_root)
-    output_dir = resolve_path(args.output_dir, config.project_root) if args.output_dir else None
-    result_dir = resolve_path(args.results, config.project_root) if args.results else config.result_dir
-    summary = evaluate_results(
-        config,
-        result_dir=result_dir,
-        output_dir=output_dir,
-        score_columns=args.score_columns,
-        label_source=args.label_source,
-    )
-
-    print(json.dumps(_public_summary(summary), indent=2, ensure_ascii=False))
-    return 0
-
-
-def _public_summary(summary: dict) -> dict:
-    return {
-        "dataset": summary["dataset"],
-        "output_dir": summary["output_dir"],
-        "frames": summary["frames"],
-        "metrics": summary["metrics"],
-    }
-</file>
-
-<file path="src/kpdl_anomaly/evaluation.py">
-from __future__ import annotations
-
-import csv
-import re
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
-
-import numpy as np
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score, roc_curve
-
-from kpdl_preprocess.config import ConfigError, get_nested, resolve_path
-from kpdl_preprocess.utils import ensure_dir, sorted_natural, stem_to_frame_id
-
-from .config import AnomalyConfig
-from .io import require_files, write_json
-
-
-EVALUATION_SCHEMA_VERSION = "spec_6.evaluation.v1"
-DEFAULT_SCORE_COLUMNS = ["frame_score", "smoothed_frame_score"]
-GT_IMAGE_EXTENSIONS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
-LABEL_SOURCES = {"auto", "mask", "interval"}
-
-
-@dataclass(frozen=True)
-class FrameScoreRow:
-    dataset: str
-    split: str
-    video_id: str
-    frame_id: int
-    severity: str
-    top_cells: str
-    scores: dict[str, float]
-
-
-@dataclass(frozen=True)
-class LabelResult:
-    label: int | None
-    source: str
-    positive_pixels: int | None = None
-    mask_path: str | None = None
-
-
-@dataclass
-class GroundTruthState:
-    test_root: Path
-    intervals_by_video: dict[str, list[tuple[int, int]]]
-    mask_maps_by_video: dict[str, dict[int, Path]]
-    warnings: list[str]
-    mask_reads: int = 0
-
-
-def evaluate_results(
-    config: AnomalyConfig,
-    result_dir: str | Path | None = None,
-    output_dir: str | Path | None = None,
-    score_columns: list[str] | None = None,
-    label_source: str | None = None,
-) -> dict[str, Any]:
-    label_source = label_source or _configured_label_source(config)
-    if label_source not in LABEL_SOURCES:
-        raise ConfigError(f"label_source must be one of: {', '.join(sorted(LABEL_SOURCES))}")
-
-    result_path = Path(result_dir or config.result_dir)
-    output_path = ensure_dir(output_dir or _default_evaluation_output_dir(config))
-    frame_scores_path = result_path / "frame_scores.csv"
-    require_files([frame_scores_path])
-
-    requested_score_columns = score_columns or _configured_score_columns(config)
-    rows, read_warnings = _read_frame_scores(frame_scores_path, requested_score_columns)
-    if not rows:
-        raise ConfigError(f"No frame score rows found in {frame_scores_path}")
-
-    active_score_columns = [column for column in requested_score_columns if column in rows[0].scores]
-    if not active_score_columns:
-        raise ConfigError("None of the requested score columns were found in frame_scores.csv")
-
-    gt_state = _load_ground_truth_state(config)
-    labeled_rows, label_summary = _label_rows(rows, gt_state, label_source, active_score_columns)
-    valid_rows = [row for row in labeled_rows if row["label"] is not None]
-    if not valid_rows:
-        raise ConfigError("No scored frames could be matched to ground truth labels")
-
-    labels = [int(row["label"]) for row in valid_rows]
-    metrics_by_score = {
-        column: _binary_metrics(
-            labels,
-            [float(row[column]) for row in valid_rows],
-            medium_threshold=config.alert_threshold_medium,
-            high_threshold=config.alert_threshold_high,
-        )
-        for column in active_score_columns
-    }
-
-    summary = {
-        "schema_version": EVALUATION_SCHEMA_VERSION,
-        "dataset": config.dataset,
-        "split": "test",
-        "evaluated_at": datetime.now(timezone.utc).isoformat(),
-        "result_dir": str(result_path),
-        "frame_scores_path": str(frame_scores_path),
-        "output_dir": str(output_path),
-        "score_columns": active_score_columns,
-        "ground_truth": {
-            "label_source": label_source,
-            "test_root": str(gt_state.test_root),
-            "interval_videos": len(gt_state.intervals_by_video),
-            "mask_videos_loaded": len(gt_state.mask_maps_by_video),
-            "mask_reads": gt_state.mask_reads,
-        },
-        "frames": label_summary,
-        "metrics": metrics_by_score,
-        "warnings": read_warnings + gt_state.warnings + label_summary["warnings"],
-    }
-
-    _write_frame_labels(output_path / "frame_labels.csv", labeled_rows, active_score_columns)
-    write_json(output_path / "metrics.json", summary)
-    _write_metrics_summary(output_path / "metrics_summary.md", summary)
-    return summary
-
-
-def _default_evaluation_output_dir(config: AnomalyConfig) -> Path:
-    root = get_nested(config.raw, "evaluation", "output_root", default="src/outputs/evaluation")
-    return resolve_path(str(root), config.project_root) / config.dataset
-
-
-def _configured_score_columns(config: AnomalyConfig) -> list[str]:
-    configured = get_nested(config.raw, "evaluation", "score_columns", default=None)
-    if isinstance(configured, list) and all(isinstance(column, str) for column in configured):
-        return configured
-    return list(DEFAULT_SCORE_COLUMNS)
-
-
-def _configured_label_source(config: AnomalyConfig) -> str:
-    configured = str(get_nested(config.raw, "evaluation", "label_source", default="auto"))
-    return configured if configured in LABEL_SOURCES else "auto"
-
-
-def _read_frame_scores(
-    path: Path,
-    score_columns: list[str],
-) -> tuple[list[FrameScoreRow], list[str]]:
-    required = ["dataset", "split", "video_id", "frame_id"]
-    warnings: list[str] = []
-    rows: list[FrameScoreRow] = []
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        header = list(reader.fieldnames or [])
-        missing_required = [column for column in required if column not in header]
-        if missing_required:
-            raise ConfigError(f"{path} is missing required column(s): {', '.join(missing_required)}")
-
-        active_score_columns = [column for column in score_columns if column in header]
-        missing_score_columns = [column for column in score_columns if column not in header]
-        if missing_score_columns:
-            warnings.append(f"Missing score column(s) skipped: {', '.join(missing_score_columns)}")
-
-        for index, row in enumerate(reader, start=2):
-            try:
-                scores = {column: float(row[column]) for column in active_score_columns}
-                frame_id = int(row["frame_id"])
-            except (TypeError, ValueError) as exc:
-                raise ConfigError(f"Invalid frame score row at {path}:{index}") from exc
-            rows.append(
-                FrameScoreRow(
-                    dataset=str(row["dataset"]),
-                    split=str(row["split"]),
-                    video_id=str(row["video_id"]),
-                    frame_id=frame_id,
-                    severity=str(row.get("severity", "")),
-                    top_cells=str(row.get("top_cells", "")),
-                    scores=scores,
-                )
-            )
-    return rows, warnings
-
-
-def _load_ground_truth_state(config: AnomalyConfig) -> GroundTruthState:
-    data = config.raw["data"]
-    dataset_root = resolve_path(str(data["root"]), config.project_root)
-    test_root = dataset_root / str(data["test_path"])
-    if not test_root.exists():
-        raise ConfigError(f"Test ground truth root does not exist: {test_root}")
-    return GroundTruthState(
-        test_root=test_root,
-        intervals_by_video=_load_ucsd_intervals(test_root),
-        mask_maps_by_video={},
-        warnings=[],
-    )
-
-
-def _load_ucsd_intervals(test_root: Path) -> dict[str, list[tuple[int, int]]]:
-    m_files = [
-        path
-        for path in sorted_natural(test_root.glob("*.m"))
-        if path.is_file() and not path.name.startswith("._")
-    ]
-    if not m_files:
-        return {}
-
-    video_dirs = [
-        path
-        for path in sorted_natural(test_root.iterdir())
-        if path.is_dir() and not path.name.lower().endswith("_gt")
-    ]
-    text = m_files[0].read_text(encoding="utf-8", errors="ignore")
-    interval_exprs = re.findall(r"gt_frame\s*=\s*\[([^\]]*)\]", text)
-    return {
-        video_dir.name: _parse_matlab_intervals(expr)
-        for video_dir, expr in zip(video_dirs, interval_exprs, strict=False)
-    }
-
-
-def _parse_matlab_intervals(expr: str) -> list[tuple[int, int]]:
-    intervals: list[tuple[int, int]] = []
-    for part in expr.split(","):
-        token = part.strip()
-        if not token:
-            continue
-        if ":" in token:
-            pieces = [piece.strip() for piece in token.split(":")]
-            if len(pieces) != 2:
-                continue
-            start, end = int(pieces[0]), int(pieces[1])
-        else:
-            start = end = int(token)
-        if start > end:
-            start, end = end, start
-        intervals.append((start, end))
-    return intervals
-
-
-def _label_rows(
-    rows: list[FrameScoreRow],
-    gt_state: GroundTruthState,
-    label_source: str,
-    score_columns: list[str],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    labeled_rows: list[dict[str, Any]] = []
-    source_counts = {"mask": 0, "interval": 0, "missing": 0}
-    warnings: list[str] = []
-    missing_examples: list[str] = []
-
-    for row in rows:
-        label = _label_for_frame(gt_state, row.video_id, row.frame_id, label_source)
-        source_counts[label.source] = source_counts.get(label.source, 0) + 1
-        if label.label is None and len(missing_examples) < 10:
-            missing_examples.append(f"{row.video_id}:{row.frame_id}")
-        output_row: dict[str, Any] = {
-            "dataset": row.dataset,
-            "split": row.split,
-            "video_id": row.video_id,
-            "frame_id": row.frame_id,
-            "label": label.label,
-            "label_source": label.source,
-            "positive_pixels": label.positive_pixels,
-            "mask_path": label.mask_path,
-            "severity": row.severity,
-            "top_cells": row.top_cells,
-        }
-        for column in score_columns:
-            output_row[column] = row.scores[column]
-        labeled_rows.append(output_row)
-
-    valid_labels = [int(row["label"]) for row in labeled_rows if row["label"] is not None]
-    if missing_examples:
-        warnings.append("Unlabeled scored frame examples: " + ", ".join(missing_examples))
-
-    return labeled_rows, {
-        "scored_frames": len(rows),
-        "labeled_frames": len(valid_labels),
-        "unlabeled_frames": len(rows) - len(valid_labels),
-        "positive_frames": int(sum(valid_labels)),
-        "negative_frames": int(len(valid_labels) - sum(valid_labels)),
-        "label_source_counts": source_counts,
-        "warnings": warnings,
-    }
-
-
-def _label_for_frame(
-    gt_state: GroundTruthState,
-    video_id: str,
-    frame_id: int,
-    label_source: str,
-) -> LabelResult:
-    if label_source in {"auto", "mask"}:
-        mask_label = _label_from_mask(gt_state, video_id, frame_id)
-        if mask_label is not None:
-            return mask_label
-        if label_source == "mask":
-            return LabelResult(label=None, source="missing")
-
-    if label_source in {"auto", "interval"}:
-        intervals = gt_state.intervals_by_video.get(video_id)
-        if intervals is not None:
-            is_positive = any(start <= frame_id <= end for start, end in intervals)
-            return LabelResult(label=1 if is_positive else 0, source="interval")
-    return LabelResult(label=None, source="missing")
-
-
-def _label_from_mask(
-    gt_state: GroundTruthState,
-    video_id: str,
-    frame_id: int,
-) -> LabelResult | None:
-    mask_map = _mask_map_for_video(gt_state, video_id)
-    mask_path = mask_map.get(frame_id)
-    if mask_path is None:
-        return None
-
-    try:
-        import cv2
-    except ImportError as exc:
-        raise ConfigError("OpenCV is required to read ground-truth mask images") from exc
-
-    mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-    if mask is None:
-        gt_state.warnings.append(f"Could not read ground-truth mask: {mask_path}")
-        return None
-    gt_state.mask_reads += 1
-    positive_pixels = int(np.count_nonzero(mask))
-    return LabelResult(
-        label=1 if positive_pixels > 0 else 0,
-        source="mask",
-        positive_pixels=positive_pixels,
-        mask_path=str(mask_path),
-    )
-
-
-def _mask_map_for_video(gt_state: GroundTruthState, video_id: str) -> dict[int, Path]:
-    if video_id in gt_state.mask_maps_by_video:
-        return gt_state.mask_maps_by_video[video_id]
-
-    gt_dir = gt_state.test_root / f"{video_id}_gt"
-    if not gt_dir.exists():
-        gt_state.mask_maps_by_video[video_id] = {}
-        return {}
-
-    mask_map: dict[int, Path] = {}
-    files = [
-        path
-        for path in sorted_natural(gt_dir.iterdir())
-        if path.is_file() and path.suffix.lower() in GT_IMAGE_EXTENSIONS
-    ]
-    for index, path in enumerate(files, start=1):
-        mask_map[stem_to_frame_id(path, index)] = path
-    gt_state.mask_maps_by_video[video_id] = mask_map
-    return mask_map
-
-
-def _binary_metrics(
-    labels: list[int],
-    scores: list[float],
-    medium_threshold: float,
-    high_threshold: float,
-) -> dict[str, Any]:
-    y_true = np.asarray(labels, dtype=np.int32)
-    y_score = np.asarray(scores, dtype=np.float64)
-    positives = int(np.sum(y_true == 1))
-    negatives = int(np.sum(y_true == 0))
-    payload: dict[str, Any] = {
-        "num_frames": int(len(y_true)),
-        "positive_frames": positives,
-        "negative_frames": negatives,
-        "score_min": float(np.min(y_score)),
-        "score_mean": float(np.mean(y_score)),
-        "score_max": float(np.max(y_score)),
-        "roc_auc": None,
-        "pr_auc": None,
-        "eer": None,
-        "eer_threshold": None,
-        "best_f1": None,
-        "best_f1_threshold": None,
-        "youden_j": None,
-        "youden_threshold": None,
-        "thresholds": {
-            "medium": _threshold_metrics(y_true, y_score, medium_threshold),
-            "high": _threshold_metrics(y_true, y_score, high_threshold),
-        },
-        "warnings": [],
-    }
-    if positives == 0 or negatives == 0:
-        payload["warnings"].append("ROC-AUC/EER require both positive and negative frames")
-        return payload
-
-    payload["roc_auc"] = float(roc_auc_score(y_true, y_score))
-    payload["pr_auc"] = float(average_precision_score(y_true, y_score))
-
-    fpr, tpr, roc_thresholds = roc_curve(y_true, y_score)
-    fnr = 1.0 - tpr
-    eer_index = int(np.argmin(np.abs(fpr - fnr)))
-    payload["eer"] = float((fpr[eer_index] + fnr[eer_index]) / 2.0)
-    payload["eer_threshold"] = _finite_threshold(float(roc_thresholds[eer_index]), y_score)
-
-    youden_values = tpr - fpr
-    youden_index = int(np.argmax(youden_values))
-    payload["youden_j"] = float(youden_values[youden_index])
-    payload["youden_threshold"] = _finite_threshold(float(roc_thresholds[youden_index]), y_score)
-
-    precision, recall, pr_thresholds = precision_recall_curve(y_true, y_score)
-    f1 = np.divide(
-        2.0 * precision * recall,
-        precision + recall,
-        out=np.zeros_like(precision, dtype=np.float64),
-        where=(precision + recall) > 0.0,
-    )
-    f1_index = int(np.argmax(f1))
-    payload["best_f1"] = float(f1[f1_index])
-    if f1_index < len(pr_thresholds):
-        payload["best_f1_threshold"] = float(pr_thresholds[f1_index])
-    else:
-        payload["best_f1_threshold"] = float(np.min(y_score) - 1.0e-12)
-    return payload
-
-
-def _threshold_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float) -> dict[str, Any]:
-    y_pred = y_score >= threshold
-    positives = y_true == 1
-    negatives = y_true == 0
-    tp = int(np.sum(y_pred & positives))
-    fp = int(np.sum(y_pred & negatives))
-    tn = int(np.sum(~y_pred & negatives))
-    fn = int(np.sum(~y_pred & positives))
-    precision = tp / (tp + fp) if tp + fp else 0.0
-    recall = tp / (tp + fn) if tp + fn else 0.0
-    fpr = fp / (fp + tn) if fp + tn else 0.0
-    fnr = fn / (fn + tp) if fn + tp else 0.0
-    return {
-        "threshold": float(threshold),
-        "tp": tp,
-        "fp": fp,
-        "tn": tn,
-        "fn": fn,
-        "precision": float(precision),
-        "recall": float(recall),
-        "fpr": float(fpr),
-        "fnr": float(fnr),
-    }
-
-
-def _finite_threshold(threshold: float, scores: np.ndarray) -> float:
-    if np.isfinite(threshold):
-        return float(threshold)
-    return float(np.max(scores) + 1.0e-12)
-
-
-def _write_frame_labels(path: Path, rows: list[dict[str, Any]], score_columns: list[str]) -> None:
-    columns = [
-        "dataset",
-        "split",
-        "video_id",
-        "frame_id",
-        "label",
-        "label_source",
-        "positive_pixels",
-        "mask_path",
-        "severity",
-        "top_cells",
-    ] + score_columns
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-
-def _write_metrics_summary(path: Path, summary: dict[str, Any]) -> None:
-    lines = [
-        f"# SPEC 6 Evaluation - {summary['dataset']}",
-        "",
-        f"- Result dir: `{summary['result_dir']}`",
-        f"- Ground truth: `{summary['ground_truth']['label_source']}` from `{summary['ground_truth']['test_root']}`",
-        f"- Labeled frames: {summary['frames']['labeled_frames']} / {summary['frames']['scored_frames']}",
-        f"- Positive frames: {summary['frames']['positive_frames']}",
-        f"- Negative frames: {summary['frames']['negative_frames']}",
-        "",
-        "| score | ROC-AUC | PR-AUC | EER | Best F1 | EER threshold |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for column, metrics in summary["metrics"].items():
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    column,
-                    _md_float(metrics["roc_auc"]),
-                    _md_float(metrics["pr_auc"]),
-                    _md_float(metrics["eer"]),
-                    _md_float(metrics["best_f1"]),
-                    _md_float(metrics["eer_threshold"]),
-                ]
-            )
-            + " |"
-        )
-    if summary["warnings"]:
-        lines.extend(["", "## Warnings", ""])
-        lines.extend(f"- {warning}" for warning in summary["warnings"])
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _md_float(value: Any) -> str:
-    if value is None:
-        return "n/a"
-    return f"{float(value):.6f}"
-</file>
-
 <file path="src/kpdl_anomaly/explanations.py">
 from __future__ import annotations
 
@@ -7201,10 +6077,17 @@ from .modeling import train_per_cell
 from .schema import SCHEMA_VERSION
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train SPEC 3 per-cell anomaly models.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model-root", default=None, help="Override output model root.")
     parser.add_argument("--clusters-per-cell", type=int, default=None, help="Override model.clusters_per_cell.")
     parser.add_argument("--threshold-percentile", type=float, default=None, help="Override model threshold percentile.")
@@ -7228,7 +6111,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_train(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_root: str | Path | None = None,
     clusters_per_cell: int | None = None,
     threshold_percentile: float | None = None,
@@ -7365,6 +6248,9 @@ from .io import read_json, require_files, write_json
 from .qualitative import write_qualitative_report
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 @dataclass(frozen=True)
 class GridCell:
     cell_id: str
@@ -7431,7 +6317,7 @@ class VisualizationSettings:
 
 def run_visualization(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     result_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     top_frames: int | None = None,
@@ -7796,7 +6682,7 @@ def _settings(
     min_score: float | None,
 ) -> VisualizationSettings:
     raw = config.raw.setdefault("visualization", {})
-    output_root = raw.setdefault("output_root", "src/outputs/visualizations")
+    output_root = raw.setdefault("output_root", "outputs/visualizations")
     resolved_output = (
         resolve_path(output_dir, config.project_root)
         if output_dir is not None
@@ -8049,7 +6935,7 @@ def _cv2():
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for visualization. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
     return cv2
 </file>
@@ -8322,10 +7208,17 @@ from kpdl_anomaly.rule_model import train_rule_model
 from kpdl_preprocess.config import resolve_path
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train SPEC 5 token/rule artifacts.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="SPEC 3 model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--output-dir", default=None, help="Override rule artifact directory.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit train feature rows for smoke tests.")
@@ -8357,7 +7250,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_rules(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     limit_rows: int | None = None,
@@ -8449,12 +7342,12 @@ from pathlib import Path
 from _common import PROJECT_ROOT, add_common_args, run_dataset
 
 
-DEFAULT_CONFIG = PROJECT_ROOT / "src" / "configs" / "avenue.yaml"
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "avenue.yaml"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Preprocess CUHK Avenue into the common SPEC 1 schema.")
-    parser.add_argument("--config", default=None, help="Optional config override. Defaults to src/configs/avenue.yaml.")
+    parser.add_argument("--config", default=None, help="Optional config override. Defaults to configs/avenue.yaml.")
     add_common_args(parser)
     return parser
 
@@ -8479,8 +7372,8 @@ from _common import PROJECT_ROOT, add_common_args, run_dataset
 
 
 CONFIGS = {
-    "ped2": PROJECT_ROOT / "src" / "configs" / "ucsd_ped2.yaml",
-    "ped1": PROJECT_ROOT / "src" / "configs" / "ucsd_ped1.yaml",
+    "ped2": PROJECT_ROOT / "configs" / "ucsd_ped2.yaml",
+    "ped1": PROJECT_ROOT / "configs" / "ucsd_ped1.yaml",
 }
 
 
@@ -8530,10 +7423,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from kpdl_anomaly.visualization import run_visualization
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render SPEC 4 anomaly heatmap overlays.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--result-dir", default=None, help="Override SPEC 3 result directory.")
     parser.add_argument("--output-dir", default=None, help="Override visualization output directory.")
     parser.add_argument("--top-frames", type=int, default=None, help="Export the top N anomaly frames.")
@@ -8585,6 +7485,149 @@ def _public_summary(stats: dict) -> dict:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+</file>
+
+<file path=".gitignore">
+# Local datasets and downloaded archives
+/New folder/
+/dataset/
+/src/dataset/
+
+# Generated preprocessing outputs
+/outputs/
+/src/outputs/
+
+# External reference papers kept outside project docs
+/*.pdf
+
+# Generated report builds kept outside the runtime pipeline
+/latex/
+
+# Python runtime/cache files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+</file>
+
+<file path="src/configs/ucsd_ped2_optical_flow.yaml">
+data:
+  dataset: "ucsd_ped2"
+  root: "dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
+  train_path: "Train"
+  test_path: "Test"
+
+video:
+  input_type: "frame_sequence"
+  resize_width: 320
+  resize_height: 240
+  grayscale: true
+  blur:
+    enabled: true
+    kernel_size: 3
+  brightness_normalization:
+    enabled: false
+
+grid:
+  rows: 12
+  cols: 16
+  ignore_cells: []
+
+cube:
+  length: 5
+  stride: 1
+
+features:
+  motion_method: "farneback"
+  frame_diff_threshold: 15
+  flow_magnitude_threshold: 0.2
+  direction_bins: 8
+  use_brightness: true
+  farneback:
+    pyr_scale: 0.5
+    levels: 3
+    winsize: 15
+    iterations: 3
+    poly_n: 5
+    poly_sigma: 1.2
+    flags: 0
+
+output:
+  root: "outputs/preprocessed_spec7_flow"
+  model_root: "outputs/models_spec7_flow"
+  result_root: "outputs/results_spec7_flow"
+
+model:
+  type: "minibatch_kmeans"
+  clusters_per_cell: 5
+  min_samples_per_cell: 50
+  batch_size: 1024
+  max_iter: 200
+  random_state: 10
+  threshold_percentile: 99.0
+  threshold_floor: 1.0e-9
+
+scoring:
+  feature_columns:
+    - foreground_ratio
+    - motion_magnitude_mean
+    - motion_magnitude_std
+    - motion_density
+    - direction_hist_0
+    - direction_hist_1
+    - direction_hist_2
+    - direction_hist_3
+    - direction_hist_4
+    - direction_hist_5
+    - direction_hist_6
+    - direction_hist_7
+    - brightness_mean
+    - brightness_delta
+  cluster_weight: 0.65
+  temporal_weight: 0.20
+  rare_token_weight: 0.10
+  rule_weight: 0.05
+  top_k_cells: 5
+  smoothing_window: 5
+  alert_threshold_medium: 0.70
+  alert_threshold_high: 0.90
+  min_consecutive_alerts: 3
+
+rules:
+  enabled: true
+  output_root: "outputs/rules_spec7_flow"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: true
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
+visualization:
+  output_root: "outputs/visualizations_spec7_flow"
+  colormap: "JET"
+  alpha: 0.45
+  heatmap_normalization: "per_frame"
+  draw_grid: false
+  draw_top_cells: true
+  top_cells_per_frame: 5
+  top_frames: 30
+  min_score: 0.70
+  frame_source: "preprocessed"
+  image_format: "png"
+  video_fps: 10
 </file>
 
 <file path="src/doc/prd.md">
@@ -9504,6 +8547,712 @@ Sau MVP, hệ thống có thể mở rộng theo các hướng:
 - dùng mô hình deep feature cho cảnh phức tạp;
 - triển khai dashboard realtime;
 - đánh giá trên nhiều camera và nhiều điều kiện môi trường hơn.
+</file>
+
+<file path="src/doc/spec_3.md">
+# SPEC 3 - Pipeline Python phân cụm theo cell và anomaly scoring sau tiền xử lý
+
+## 1. Mục tiêu
+
+Tài liệu này mô tả bước triển khai tiếp theo sau khi giai đoạn tiền xử lý đã sinh feature CSV. Mục tiêu của SPEC 3 là chuyển từ dữ liệu đặc trưng đã chuẩn hóa sang một pipeline Python có thể chạy lặp lại để:
+
+- huấn luyện mô hình phân cụm hành vi bình thường theo từng cell;
+- tính khoảng cách của mỗi feature row tới cụm bình thường gần nhất;
+- chọn threshold theo phân phối train normal;
+- sinh anomaly score ở mức cell/cube và frame;
+- làm mượt score theo thời gian;
+- xuất kết quả phục vụ bước heatmap, alert, token/rule và đánh giá sau này.
+
+SPEC 3 ưu tiên UCSD Ped2 vì dữ liệu nhỏ hơn, đã có đầy đủ `features_train.csv`, `features_test.csv` và `preprocess_stats.json`.
+
+## 2. Liên hệ với PRD và các spec trước
+
+Theo PRD, giai đoạn sau tiền xử lý cần học normal pattern riêng theo vùng camera, sau đó dùng độ lệch so với normal pattern để tính bất thường. SPEC 1 đã tạo feature đầu vào. SPEC 3 triển khai nhánh Python tự động hóa để có thể train, test, lưu model, tính score và chạy lại bằng config.
+
+## 3. Trạng thái dữ liệu đầu vào hiện có
+
+Feature đầu vào mặc định:
+
+```text
+src/outputs/preprocessed/
+  ucsd_ped2/
+    features_train.csv
+    features_test.csv
+    grid.json
+    preprocess_stats.json
+  ucsd_ped1/
+    features_train.csv
+    features_test.csv
+    grid.json
+    preprocess_stats.json
+  avenue/
+    features_train.csv
+    features_test.csv
+    grid.json
+    preprocess_stats.json
+```
+
+Kích thước hiện tại theo `preprocess_stats.json`:
+
+```text
+UCSD Ped2 train:
+  videos: 16
+  frames: 2550
+  cubes: 2486
+  cells: 192
+  feature rows: 477312
+
+UCSD Ped2 test:
+  videos: 12
+  frames: 2010
+  cubes: 1962
+  cells: 192
+  feature rows: 376704
+
+UCSD Ped1 train:
+  videos: 34
+  frames: 6800
+  cubes: 6664
+  cells: 192
+  feature rows: 1279488
+
+UCSD Ped1 test:
+  videos: 36
+  frames: 7200
+  cubes: 7056
+  cells: 192
+  feature rows: 1354752
+
+Avenue train:
+  videos: 16
+  frames: 15328
+  cubes: 15264
+  cells: 192
+  feature rows: 2930688
+
+Avenue test:
+  videos: 21
+  frames: 15324
+  cubes: 15240
+  cells: 192
+  feature rows: 2926080
+```
+
+Schema feature đang dùng:
+
+```text
+dataset
+split
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+cell_id
+cell_row
+cell_col
+foreground_ratio
+motion_magnitude_mean
+motion_magnitude_std
+motion_density
+direction_hist_0..7
+brightness_mean
+brightness_delta
+```
+
+Baseline đầu tiên chỉ dùng các feature hành vi sau:
+
+```text
+foreground_ratio
+motion_magnitude_mean
+motion_magnitude_std
+motion_density
+brightness_mean
+brightness_delta
+```
+
+Không dùng `direction_hist_0..7` trong SPEC 3 baseline vì với `motion_method = frame_diff` các cột này hiện chưa mang thông tin hướng đáng tin cậy.
+
+## 4. Phạm vi
+
+### 4.1. Nằm trong phạm vi
+
+- Đọc feature CSV từ `src/outputs/preprocessed/{dataset}`.
+- Huấn luyện MiniBatchKMeans riêng cho từng `cell_id`.
+- Chuẩn hóa feature bằng scaler riêng cho từng cell.
+- Lưu model, scaler, centroid, threshold và metadata train.
+- Tính cluster distance cho train/test.
+- Chọn threshold theo percentile train của từng cell.
+- Tính `cluster_distance_score` theo từng cell/cube.
+- Tính `temporal_change_score` baseline theo lịch sử score cùng cell.
+- Tổng hợp thành `cell_score` và `frame_score`.
+- Làm mượt frame score bằng moving average hoặc EMA.
+- Sinh `frame_scores.csv`, `cell_scores.csv` và `alerts.json`.
+- Ghi log train/test đủ để tái hiện.
+
+### 4.2. Ngoài phạm vi
+
+- Heatmap overlay lên video.
+- ROC-AUC/EER hoàn chỉnh theo ground truth mask.
+- Tokenization và association rules production.
+- Optical flow hoặc direction histogram thật.
+- Dashboard hoặc realtime stream.
+- Tối ưu model nâng cao như GMM, Isolation Forest, DBSCAN.
+
+Các phần ngoài phạm vi nên đưa sang SPEC sau, sau khi SPEC 3 đã có score ổn định và có thể kiểm tra định tính.
+
+## 5. Kiến trúc module đề xuất
+
+Tạo package mới để tách rõ tiền xử lý và mô hình:
+
+```text
+src/kpdl_anomaly/
+  __init__.py
+  config.py
+  io.py
+  schema.py
+  feature_selection.py
+  modeling.py
+  thresholds.py
+  scoring.py
+  smoothing.py
+  alerts.py
+  train.py
+  test.py
+```
+
+Entrypoint đề xuất:
+
+```text
+src/train.py
+src/test.py
+```
+
+Hoặc nếu muốn giữ style hiện tại của `src/tool/`, có thể thêm:
+
+```text
+src/tool/train_anomaly.py
+src/tool/test_anomaly.py
+```
+
+Ưu tiên giữ CLI ngắn và tái dùng config:
+
+```bash
+python src/train.py --config src/configs/ucsd_ped2.yaml
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
+```
+
+## 6. Dependency cần bổ sung
+
+SPEC 3 cần thêm thư viện machine learning nhẹ:
+
+```text
+scikit-learn>=1.3
+joblib>=1.3
+```
+
+Nếu muốn đọc CSV lớn tiện hơn có thể thêm `pandas`, nhưng MVP nên cân nhắc đọc bằng `csv` chuẩn và gom theo cell bằng chunk/buffer để giảm dependency. Với UCSD Ped2, dùng `numpy` và `csv` là đủ.
+
+## 7. Cấu hình đề xuất
+
+Bổ sung các mục sau vào YAML dataset hiện có hoặc tạo file model riêng như `src/configs/ucsd_ped2_anomaly.yaml`:
+
+```yaml
+model:
+  type: "minibatch_kmeans"
+  clusters_per_cell: 5
+  min_samples_per_cell: 50
+  batch_size: 1024
+  max_iter: 200
+  random_state: 10
+  threshold_percentile: 99.0
+
+scoring:
+  feature_columns:
+    - foreground_ratio
+    - motion_magnitude_mean
+    - motion_magnitude_std
+    - motion_density
+    - brightness_mean
+    - brightness_delta
+  cluster_weight: 0.80
+  temporal_weight: 0.20
+  top_k_cells: 5
+  smoothing_window: 5
+  alert_threshold_medium: 0.70
+  alert_threshold_high: 0.90
+  min_consecutive_alerts: 3
+
+output:
+  model_root: "src/outputs/models"
+  result_root: "src/outputs/results"
+```
+
+Trong MVP, công thức score dùng:
+
+```text
+score = 0.80 * cluster_distance_score
+      + 0.20 * temporal_change_score
+```
+
+Khi token/rule đã sẵn sàng ở SPEC sau, có thể mở rộng:
+
+```text
+score = 0.65 * cluster_distance_score
+      + 0.20 * temporal_change_score
+      + 0.10 * rare_token_score
+      + 0.05 * rule_violation_score
+```
+
+## 8. Quy trình train
+
+### Bước 1 - Load config và input
+
+Đọc:
+
+```text
+src/outputs/preprocessed/{dataset}/features_train.csv
+src/outputs/preprocessed/{dataset}/grid.json
+src/outputs/preprocessed/{dataset}/preprocess_stats.json
+```
+
+Kiểm tra:
+
+- file tồn tại;
+- schema feature có đủ cột bắt buộc;
+- `split` trong train file là `train`;
+- số dòng đọc được khớp với `preprocess_stats.json` hoặc ghi warning rõ.
+
+### Bước 2 - Gom feature theo cell
+
+Với mỗi dòng train:
+
+1. lấy `cell_id`;
+2. lấy feature columns đã cấu hình;
+3. bỏ qua dòng có giá trị numeric không hợp lệ;
+4. thêm vector vào buffer của cell.
+
+MVP có thể load toàn bộ UCSD Ped2 train vào RAM. Với Avenue, cần hỗ trợ đọc streaming/chunk để không phụ thuộc vào RAM lớn.
+
+### Bước 3 - Train scaler và KMeans theo cell
+
+Với mỗi cell:
+
+1. nếu số mẫu `< min_samples_per_cell`, tạo fallback model;
+2. fit `StandardScaler` trên feature train của cell;
+3. transform feature;
+4. fit `MiniBatchKMeans`;
+5. tính khoảng cách từng mẫu train tới centroid gần nhất;
+6. lưu percentile distance làm threshold.
+
+Fallback cho cell ít dữ liệu:
+
+- dùng thống kê global train nếu có;
+- hoặc đánh dấu `model_status = insufficient_samples`;
+- score của cell đó dùng z-score đơn giản hoặc luôn thấp cho đến khi có đủ dữ liệu.
+
+### Bước 4 - Lưu model artifact
+
+Output đề xuất:
+
+```text
+src/outputs/models/{dataset}/
+  config.yaml
+  model_manifest.json
+  cell_models.joblib
+  cell_scalers.joblib
+  thresholds.json
+  feature_stats.json
+```
+
+`model_manifest.json` cần có:
+
+```text
+dataset
+trained_at
+schema_version
+feature_columns
+num_cells
+num_models_trained
+num_fallback_cells
+clusters_per_cell
+threshold_percentile
+train_feature_path
+grid_path
+```
+
+`thresholds.json` cần có:
+
+```text
+cell_id
+distance_mean
+distance_std
+distance_p95
+distance_p99
+threshold
+num_train_samples
+```
+
+## 9. Quy trình test/scoring
+
+### Bước 1 - Load model và feature test
+
+Đọc:
+
+```text
+src/outputs/models/{dataset}/
+src/outputs/preprocessed/{dataset}/features_test.csv
+```
+
+Kiểm tra model manifest khớp:
+
+- dataset;
+- schema version;
+- feature columns;
+- grid rows/cols nếu có lưu trong manifest.
+
+### Bước 2 - Tính cluster distance
+
+Với mỗi feature row:
+
+1. lấy model/scaler theo `cell_id`;
+2. chuẩn hóa vector;
+3. tìm centroid gần nhất;
+4. tính distance;
+5. chuẩn hóa distance thành `cluster_distance_score`.
+
+Công thức MVP:
+
+```text
+cluster_distance_score = min(distance / threshold, 2.0) / 2.0
+```
+
+Nếu `threshold <= 0`, dùng fallback:
+
+```text
+cluster_distance_score = 0.0 nếu distance gần 0
+cluster_distance_score = 1.0 nếu distance > 0
+```
+
+### Bước 3 - Tính temporal change
+
+Theo từng `(video_id, cell_id)`, giữ score trước đó:
+
+```text
+temporal_change_score = abs(current_cluster_score - previous_cluster_score)
+```
+
+Chuẩn hóa về `[0, 1]` bằng clipping. Với dòng đầu tiên của mỗi video/cell, đặt `temporal_change_score = 0.0`.
+
+### Bước 4 - Tính cell score
+
+```text
+cell_score = cluster_weight * cluster_distance_score
+           + temporal_weight * temporal_change_score
+```
+
+Clip `cell_score` về `[0, 1]`.
+
+### Bước 5 - Tổng hợp frame score
+
+Nhóm theo:
+
+```text
+dataset, split, video_id, center_frame_id
+```
+
+Lấy `top_k_cells` cell score cao nhất:
+
+```text
+frame_score = mean(top_k cell_score)
+```
+
+Nếu số cell ít hơn `top_k_cells`, lấy mean các cell có sẵn.
+
+### Bước 6 - Smoothing và alert
+
+Làm mượt `frame_score` theo từng video:
+
+```text
+smoothed_frame_score = moving_average(frame_score, window=smoothing_window)
+```
+
+Sinh severity:
+
+```text
+if smoothed_frame_score >= alert_threshold_high for >= min_consecutive_alerts:
+    severity = "high"
+elif smoothed_frame_score >= alert_threshold_medium for >= min_consecutive_alerts:
+    severity = "medium"
+else:
+    severity = "none"
+```
+
+## 10. Output kết quả
+
+Output mặc định:
+
+```text
+src/outputs/results/{dataset}/
+  cell_scores.csv
+  frame_scores.csv
+  alerts.json
+  scoring_stats.json
+```
+
+`cell_scores.csv`:
+
+```text
+dataset
+split
+video_id
+cube_id
+start_frame_id
+end_frame_id
+center_frame_id
+cell_id
+cell_row
+cell_col
+nearest_cluster
+cluster_distance
+cluster_threshold
+cluster_distance_score
+temporal_change_score
+cell_score
+```
+
+`frame_scores.csv`:
+
+```text
+dataset
+split
+video_id
+frame_id
+frame_score
+smoothed_frame_score
+severity
+top_cells
+```
+
+`alerts.json`:
+
+```json
+[
+  {
+    "dataset": "ucsd_ped2",
+    "video_id": "Test001",
+    "start_frame_id": 61,
+    "end_frame_id": 78,
+    "max_score": 0.93,
+    "severity": "high",
+    "top_cells": ["08_05", "08_06", "09_05"],
+    "reasons": [
+      "cell=08_05 cluster distance is above its train p99 threshold",
+      "frame score stayed high for 3 consecutive frames"
+    ]
+  }
+]
+```
+
+## 11. Reason text MVP
+
+SPEC 3 chưa làm token/rule đầy đủ, nhưng mỗi alert cần có reason tối thiểu:
+
+- cell nào có score cao nhất;
+- distance có vượt threshold train hay không;
+- nearest cluster là cluster nào;
+- score có kéo dài qua nhiều frame hay không.
+
+Ví dụ:
+
+```text
+cell=08_05 has cluster_distance=1.42 above train threshold=0.87
+nearest normal cluster is C3
+smoothed frame score exceeded high threshold for 4 consecutive frames
+```
+
+## 12. CLI đề xuất
+
+Train:
+
+```bash
+python src/train.py --config src/configs/ucsd_ped2.yaml
+```
+
+Train với override nhanh:
+
+```bash
+python src/train.py --config src/configs/ucsd_ped2.yaml --clusters-per-cell 5 --threshold-percentile 99
+```
+
+Test:
+
+```bash
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2
+```
+
+Debug với giới hạn dòng:
+
+```bash
+python src/test.py --config src/configs/ucsd_ped2.yaml --model src/outputs/models/ucsd_ped2 --limit-rows 50000
+```
+
+## 13. Thí nghiệm bắt buộc
+
+### Experiment 1 - UCSD Ped2 per-cell KMeans K=5
+
+Input:
+
+```text
+src/outputs/preprocessed/ucsd_ped2/features_train.csv
+src/outputs/preprocessed/ucsd_ped2/features_test.csv
+```
+
+Config:
+
+```text
+clusters_per_cell = 5
+threshold_percentile = 99
+feature_columns = foreground_ratio, motion_magnitude_mean, motion_magnitude_std, motion_density, brightness_mean, brightness_delta
+```
+
+Kết quả cần có:
+
+- model cho đủ 192 cell hoặc fallback rõ cho cell thiếu mẫu;
+- `frame_scores.csv`;
+- `alerts.json`;
+- thống kê số frame vượt ngưỡng medium/high.
+
+### Experiment 2 - So sánh threshold percentile
+
+Chạy:
+
+```text
+threshold_percentile = 95, 97.5, 99
+```
+
+Ghi:
+
+- số alert;
+- số frame severity medium/high;
+- phân phối score train/test;
+- nhận xét threshold nào ít nhiễu hơn.
+
+### Experiment 3 - So sánh K
+
+Chạy:
+
+```text
+clusters_per_cell = 3, 5, 8
+```
+
+Ghi:
+
+- train distance mean/std/p99;
+- số cell có cụm quá nhỏ;
+- thời gian train/test;
+- nhận xét khả năng giải thích.
+
+### Experiment 4 - Chạy Avenue hoặc UCSD Ped1 sau khi Ped2 ổn
+
+Chỉ chạy sau khi UCSD Ped2 hoàn thành, vì dữ liệu lớn hơn. Cần log runtime và RAM nếu có thể.
+
+## 14. Tiêu chí đánh giá
+
+Một lần chạy SPEC 3 được xem là đạt khi:
+
+- train hoàn tất trên UCSD Ped2 không lỗi;
+- có model artifact đầy đủ trong `src/outputs/models/ucsd_ped2`;
+- test hoàn tất trên UCSD Ped2 không lỗi;
+- `cell_scores.csv` và `frame_scores.csv` truy vết được về `video_id`, `cube_id`, `frame_id`, `cell_id`;
+- score nằm trong khoảng `[0, 1]` sau clipping;
+- `alerts.json` có reason tối thiểu;
+- cấu hình và model manifest đủ để chạy lại;
+- runtime không phụ thuộc thao tác thủ công trong WEKA.
+
+## 15. Rủi ro và giảm thiểu
+
+### 15.1. Dữ liệu lớn gây tốn RAM
+
+Rủi ro: Avenue có gần 3 triệu dòng mỗi split, load toàn bộ có thể tốn RAM.
+
+Giảm thiểu:
+
+- ưu tiên UCSD Ped2;
+- đọc CSV theo chunk;
+- train từng cell hoặc gom từng cell ra file tạm nếu cần;
+- chỉ export score cần thiết, tránh giữ toàn bộ object lớn trong RAM.
+
+### 15.2. Cell ít chuyển động tạo threshold quá nhỏ
+
+Rủi ro: cell gần như đứng yên có train distance rất nhỏ, một nhiễu nhẹ cũng tạo score cao.
+
+Giảm thiểu:
+
+- dùng threshold floor;
+- dùng `min_samples_per_cell`;
+- thêm `motion_density` floor trước khi alert;
+- yêu cầu smoothing và consecutive frames.
+
+### 15.3. Feature frame_diff thiếu hướng chuyển động
+
+Rủi ro: model chưa phát hiện tốt bất thường do sai hướng.
+
+Giảm thiểu:
+
+- ghi rõ SPEC 3 là baseline cluster/distance;
+- không dùng direction hist zero trong model;
+- tạo SPEC sau cho Farneback optical flow hoặc hướng chuyển động thật.
+
+### 15.4. Không có ground truth trong scoring MVP
+
+Rủi ro: chỉ nhìn score/alert chưa biết đúng sai định lượng.
+
+Giảm thiểu:
+
+- lưu output truy vết đầy đủ;
+- chuẩn bị SPEC sau cho evaluation với mask UCSD;
+- kiểm tra định tính bằng các frame top score trước.
+
+## 16. Checklist triển khai
+
+- [ ] Bổ sung dependency `scikit-learn` và `joblib`.
+- [ ] Tạo package `src/kpdl_anomaly/`.
+- [ ] Tạo loader đọc feature CSV và validate schema.
+- [ ] Tạo feature selector bỏ metadata và direction histogram baseline.
+- [ ] Tạo train per-cell scaler + MiniBatchKMeans.
+- [ ] Tạo threshold percentile theo train distance.
+- [ ] Lưu model artifact bằng joblib/JSON.
+- [ ] Tạo test scorer đọc model và feature test.
+- [ ] Xuất `cell_scores.csv`.
+- [ ] Tổng hợp `frame_scores.csv` bằng top-k mean.
+- [ ] Thêm smoothing theo video.
+- [ ] Sinh `alerts.json` với reason tối thiểu.
+- [ ] Thêm CLI `src/train.py`.
+- [ ] Thêm CLI `src/test.py`.
+- [ ] Chạy smoke test với `--limit-rows`.
+- [ ] Chạy full UCSD Ped2 train/test.
+- [ ] Ghi `src/doc/spec_3_processed.md`.
+
+## 17. Tiêu chí hoàn thành SPEC 3
+
+SPEC 3 hoàn thành khi:
+
+- UCSD Ped2 train/test chạy được end-to-end bằng CLI Python;
+- output model và result nằm đúng cấu trúc;
+- có log hoặc processed file ghi rõ cấu hình K, threshold percentile, số cell train thành công, số fallback cell;
+- có ít nhất một file `frame_scores.csv` và `alerts.json` dùng được cho bước visualization;
+- có verification bằng smoke test và full Ped2;
+- không cần mở WEKA để tính score.
+
+## 18. Hướng sau SPEC 3
+
+Sau SPEC 3, bước tiếp theo nên là:
+
+- SPEC 4: heatmap overlay và kiểm tra định tính top anomaly frames;
+- SPEC 5: tokenization, rare token score và association rules trong Python;
+- SPEC 6: evaluation ROC-AUC/EER với ground truth UCSD;
+- SPEC 7: optical flow hoặc direction feature thật để bắt bất thường sai hướng.
 </file>
 
 <file path="src/doc/spec_4_processed.md">
@@ -10643,6 +10392,9 @@ from kpdl_preprocess.config import ConfigError, copy_config, get_nested, load_co
 from .schema import DEFAULT_FEATURE_COLUMNS
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 @dataclass(frozen=True)
 class RulesConfig:
     enabled: bool
@@ -10701,7 +10453,7 @@ class AnomalyConfig:
 
 def load_anomaly_config(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_root: str | Path | None = None,
     result_root: str | Path | None = None,
     clusters_per_cell: int | None = None,
@@ -10727,7 +10479,7 @@ def load_anomaly_config(
 
     rules = raw.setdefault("rules", {})
     rules.setdefault("enabled", False)
-    rules.setdefault("output_root", "src/outputs/rules")
+    rules.setdefault("output_root", "outputs/rules")
     rules.setdefault("model_dir", None)
     rules.setdefault("algorithm", "bounded_apriori")
     rules.setdefault("min_support", 0.01)
@@ -10757,9 +10509,9 @@ def load_anomaly_config(
     scoring.setdefault("min_consecutive_alerts", 3)
 
     output = raw.setdefault("output", {})
-    output.setdefault("root", "src/outputs/preprocessed")
-    output.setdefault("model_root", "src/outputs/models")
-    output.setdefault("result_root", "src/outputs/results")
+    output.setdefault("root", "outputs/preprocessed")
+    output.setdefault("model_root", "outputs/models")
+    output.setdefault("result_root", "outputs/results")
     if model_root is not None:
         output["model_root"] = str(model_root)
     if result_root is not None:
@@ -10888,6 +10640,581 @@ def _probability(config: dict[str, Any], section: str, key: str, allow_zero: boo
         bound = "[0, 1]" if allow_zero else "(0, 1]"
         raise ConfigError(f"{section}.{key} must be in the interval {bound}")
     return value
+</file>
+
+<file path="src/kpdl_anomaly/evaluate_cli.py">
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from kpdl_preprocess.config import resolve_path
+
+from .config import load_anomaly_config
+from .evaluation import evaluate_results
+
+
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Evaluate frame-level anomaly metrics for one pipeline result.")
+    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
+    parser.add_argument("--results", default=None, help="Single result directory to evaluate.")
+    parser.add_argument("--output-dir", default=None, help="Directory for evaluation artifacts.")
+    parser.add_argument(
+        "--score-columns",
+        nargs="+",
+        default=None,
+        help="Frame score columns to evaluate. Defaults to evaluation.score_columns.",
+    )
+    parser.add_argument(
+        "--label-source",
+        choices=["auto", "mask", "interval"],
+        default=None,
+        help="Ground-truth source. Defaults to evaluation.label_source.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    config = load_anomaly_config(config_path=args.config, project_root=args.project_root)
+    output_dir = resolve_path(args.output_dir, config.project_root) if args.output_dir else None
+    result_dir = resolve_path(args.results, config.project_root) if args.results else config.result_dir
+    summary = evaluate_results(
+        config,
+        result_dir=result_dir,
+        output_dir=output_dir,
+        score_columns=args.score_columns,
+        label_source=args.label_source,
+    )
+
+    print(json.dumps(_public_summary(summary), indent=2, ensure_ascii=False))
+    return 0
+
+
+def _public_summary(summary: dict) -> dict:
+    return {
+        "dataset": summary["dataset"],
+        "output_dir": summary["output_dir"],
+        "frames": summary["frames"],
+        "metrics": summary["metrics"],
+    }
+</file>
+
+<file path="src/kpdl_anomaly/evaluation.py">
+from __future__ import annotations
+
+import csv
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score, roc_curve
+
+from kpdl_preprocess.config import ConfigError, get_nested, resolve_path
+from kpdl_preprocess.utils import ensure_dir, sorted_natural, stem_to_frame_id
+
+from .config import AnomalyConfig
+from .io import require_files, write_json
+
+
+EVALUATION_SCHEMA_VERSION = "spec_6.evaluation.v1"
+DEFAULT_SCORE_COLUMNS = ["frame_score", "smoothed_frame_score"]
+GT_IMAGE_EXTENSIONS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+LABEL_SOURCES = {"auto", "mask", "interval"}
+
+
+@dataclass(frozen=True)
+class FrameScoreRow:
+    dataset: str
+    split: str
+    video_id: str
+    frame_id: int
+    severity: str
+    top_cells: str
+    scores: dict[str, float]
+
+
+@dataclass(frozen=True)
+class LabelResult:
+    label: int | None
+    source: str
+    positive_pixels: int | None = None
+    mask_path: str | None = None
+
+
+@dataclass
+class GroundTruthState:
+    test_root: Path
+    intervals_by_video: dict[str, list[tuple[int, int]]]
+    mask_maps_by_video: dict[str, dict[int, Path]]
+    warnings: list[str]
+    mask_reads: int = 0
+
+
+def evaluate_results(
+    config: AnomalyConfig,
+    result_dir: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    score_columns: list[str] | None = None,
+    label_source: str | None = None,
+) -> dict[str, Any]:
+    label_source = label_source or _configured_label_source(config)
+    if label_source not in LABEL_SOURCES:
+        raise ConfigError(f"label_source must be one of: {', '.join(sorted(LABEL_SOURCES))}")
+
+    result_path = Path(result_dir or config.result_dir)
+    output_path = ensure_dir(output_dir or _default_evaluation_output_dir(config))
+    frame_scores_path = result_path / "frame_scores.csv"
+    require_files([frame_scores_path])
+
+    requested_score_columns = score_columns or _configured_score_columns(config)
+    rows, read_warnings = _read_frame_scores(frame_scores_path, requested_score_columns)
+    if not rows:
+        raise ConfigError(f"No frame score rows found in {frame_scores_path}")
+
+    active_score_columns = [column for column in requested_score_columns if column in rows[0].scores]
+    if not active_score_columns:
+        raise ConfigError("None of the requested score columns were found in frame_scores.csv")
+
+    gt_state = _load_ground_truth_state(config)
+    labeled_rows, label_summary = _label_rows(rows, gt_state, label_source, active_score_columns)
+    valid_rows = [row for row in labeled_rows if row["label"] is not None]
+    if not valid_rows:
+        raise ConfigError("No scored frames could be matched to ground truth labels")
+
+    labels = [int(row["label"]) for row in valid_rows]
+    metrics_by_score = {
+        column: _binary_metrics(
+            labels,
+            [float(row[column]) for row in valid_rows],
+            medium_threshold=config.alert_threshold_medium,
+            high_threshold=config.alert_threshold_high,
+        )
+        for column in active_score_columns
+    }
+
+    summary = {
+        "schema_version": EVALUATION_SCHEMA_VERSION,
+        "dataset": config.dataset,
+        "split": "test",
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "result_dir": str(result_path),
+        "frame_scores_path": str(frame_scores_path),
+        "output_dir": str(output_path),
+        "score_columns": active_score_columns,
+        "ground_truth": {
+            "label_source": label_source,
+            "test_root": str(gt_state.test_root),
+            "interval_videos": len(gt_state.intervals_by_video),
+            "mask_videos_loaded": len(gt_state.mask_maps_by_video),
+            "mask_reads": gt_state.mask_reads,
+        },
+        "frames": label_summary,
+        "metrics": metrics_by_score,
+        "warnings": read_warnings + gt_state.warnings + label_summary["warnings"],
+    }
+
+    _write_frame_labels(output_path / "frame_labels.csv", labeled_rows, active_score_columns)
+    write_json(output_path / "metrics.json", summary)
+    _write_metrics_summary(output_path / "metrics_summary.md", summary)
+    return summary
+
+
+def _default_evaluation_output_dir(config: AnomalyConfig) -> Path:
+    root = get_nested(config.raw, "evaluation", "output_root", default="outputs/evaluation")
+    return resolve_path(str(root), config.project_root) / config.dataset
+
+
+def _configured_score_columns(config: AnomalyConfig) -> list[str]:
+    configured = get_nested(config.raw, "evaluation", "score_columns", default=None)
+    if isinstance(configured, list) and all(isinstance(column, str) for column in configured):
+        return configured
+    return list(DEFAULT_SCORE_COLUMNS)
+
+
+def _configured_label_source(config: AnomalyConfig) -> str:
+    configured = str(get_nested(config.raw, "evaluation", "label_source", default="auto"))
+    return configured if configured in LABEL_SOURCES else "auto"
+
+
+def _read_frame_scores(
+    path: Path,
+    score_columns: list[str],
+) -> tuple[list[FrameScoreRow], list[str]]:
+    required = ["dataset", "split", "video_id", "frame_id"]
+    warnings: list[str] = []
+    rows: list[FrameScoreRow] = []
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        header = list(reader.fieldnames or [])
+        missing_required = [column for column in required if column not in header]
+        if missing_required:
+            raise ConfigError(f"{path} is missing required column(s): {', '.join(missing_required)}")
+
+        active_score_columns = [column for column in score_columns if column in header]
+        missing_score_columns = [column for column in score_columns if column not in header]
+        if missing_score_columns:
+            warnings.append(f"Missing score column(s) skipped: {', '.join(missing_score_columns)}")
+
+        for index, row in enumerate(reader, start=2):
+            try:
+                scores = {column: float(row[column]) for column in active_score_columns}
+                frame_id = int(row["frame_id"])
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(f"Invalid frame score row at {path}:{index}") from exc
+            rows.append(
+                FrameScoreRow(
+                    dataset=str(row["dataset"]),
+                    split=str(row["split"]),
+                    video_id=str(row["video_id"]),
+                    frame_id=frame_id,
+                    severity=str(row.get("severity", "")),
+                    top_cells=str(row.get("top_cells", "")),
+                    scores=scores,
+                )
+            )
+    return rows, warnings
+
+
+def _load_ground_truth_state(config: AnomalyConfig) -> GroundTruthState:
+    data = config.raw["data"]
+    dataset_root = resolve_path(str(data["root"]), config.project_root)
+    test_root = dataset_root / str(data["test_path"])
+    if not test_root.exists():
+        raise ConfigError(f"Test ground truth root does not exist: {test_root}")
+    return GroundTruthState(
+        test_root=test_root,
+        intervals_by_video=_load_ucsd_intervals(test_root),
+        mask_maps_by_video={},
+        warnings=[],
+    )
+
+
+def _load_ucsd_intervals(test_root: Path) -> dict[str, list[tuple[int, int]]]:
+    m_files = [
+        path
+        for path in sorted_natural(test_root.glob("*.m"))
+        if path.is_file() and not path.name.startswith("._")
+    ]
+    if not m_files:
+        return {}
+
+    video_dirs = [
+        path
+        for path in sorted_natural(test_root.iterdir())
+        if path.is_dir() and not path.name.lower().endswith("_gt")
+    ]
+    text = m_files[0].read_text(encoding="utf-8", errors="ignore")
+    interval_exprs = re.findall(r"gt_frame\s*=\s*\[([^\]]*)\]", text)
+    return {
+        video_dir.name: _parse_matlab_intervals(expr)
+        for video_dir, expr in zip(video_dirs, interval_exprs, strict=False)
+    }
+
+
+def _parse_matlab_intervals(expr: str) -> list[tuple[int, int]]:
+    intervals: list[tuple[int, int]] = []
+    for part in expr.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if ":" in token:
+            pieces = [piece.strip() for piece in token.split(":")]
+            if len(pieces) != 2:
+                continue
+            start, end = int(pieces[0]), int(pieces[1])
+        else:
+            start = end = int(token)
+        if start > end:
+            start, end = end, start
+        intervals.append((start, end))
+    return intervals
+
+
+def _label_rows(
+    rows: list[FrameScoreRow],
+    gt_state: GroundTruthState,
+    label_source: str,
+    score_columns: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    labeled_rows: list[dict[str, Any]] = []
+    source_counts = {"mask": 0, "interval": 0, "missing": 0}
+    warnings: list[str] = []
+    missing_examples: list[str] = []
+
+    for row in rows:
+        label = _label_for_frame(gt_state, row.video_id, row.frame_id, label_source)
+        source_counts[label.source] = source_counts.get(label.source, 0) + 1
+        if label.label is None and len(missing_examples) < 10:
+            missing_examples.append(f"{row.video_id}:{row.frame_id}")
+        output_row: dict[str, Any] = {
+            "dataset": row.dataset,
+            "split": row.split,
+            "video_id": row.video_id,
+            "frame_id": row.frame_id,
+            "label": label.label,
+            "label_source": label.source,
+            "positive_pixels": label.positive_pixels,
+            "mask_path": label.mask_path,
+            "severity": row.severity,
+            "top_cells": row.top_cells,
+        }
+        for column in score_columns:
+            output_row[column] = row.scores[column]
+        labeled_rows.append(output_row)
+
+    valid_labels = [int(row["label"]) for row in labeled_rows if row["label"] is not None]
+    if missing_examples:
+        warnings.append("Unlabeled scored frame examples: " + ", ".join(missing_examples))
+
+    return labeled_rows, {
+        "scored_frames": len(rows),
+        "labeled_frames": len(valid_labels),
+        "unlabeled_frames": len(rows) - len(valid_labels),
+        "positive_frames": int(sum(valid_labels)),
+        "negative_frames": int(len(valid_labels) - sum(valid_labels)),
+        "label_source_counts": source_counts,
+        "warnings": warnings,
+    }
+
+
+def _label_for_frame(
+    gt_state: GroundTruthState,
+    video_id: str,
+    frame_id: int,
+    label_source: str,
+) -> LabelResult:
+    if label_source in {"auto", "mask"}:
+        mask_label = _label_from_mask(gt_state, video_id, frame_id)
+        if mask_label is not None:
+            return mask_label
+        if label_source == "mask":
+            return LabelResult(label=None, source="missing")
+
+    if label_source in {"auto", "interval"}:
+        intervals = gt_state.intervals_by_video.get(video_id)
+        if intervals is not None:
+            is_positive = any(start <= frame_id <= end for start, end in intervals)
+            return LabelResult(label=1 if is_positive else 0, source="interval")
+    return LabelResult(label=None, source="missing")
+
+
+def _label_from_mask(
+    gt_state: GroundTruthState,
+    video_id: str,
+    frame_id: int,
+) -> LabelResult | None:
+    mask_map = _mask_map_for_video(gt_state, video_id)
+    mask_path = mask_map.get(frame_id)
+    if mask_path is None:
+        return None
+
+    try:
+        import cv2
+    except ImportError as exc:
+        raise ConfigError("OpenCV is required to read ground-truth mask images") from exc
+
+    mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        gt_state.warnings.append(f"Could not read ground-truth mask: {mask_path}")
+        return None
+    gt_state.mask_reads += 1
+    positive_pixels = int(np.count_nonzero(mask))
+    return LabelResult(
+        label=1 if positive_pixels > 0 else 0,
+        source="mask",
+        positive_pixels=positive_pixels,
+        mask_path=str(mask_path),
+    )
+
+
+def _mask_map_for_video(gt_state: GroundTruthState, video_id: str) -> dict[int, Path]:
+    if video_id in gt_state.mask_maps_by_video:
+        return gt_state.mask_maps_by_video[video_id]
+
+    gt_dir = gt_state.test_root / f"{video_id}_gt"
+    if not gt_dir.exists():
+        gt_state.mask_maps_by_video[video_id] = {}
+        return {}
+
+    mask_map: dict[int, Path] = {}
+    files = [
+        path
+        for path in sorted_natural(gt_dir.iterdir())
+        if path.is_file() and path.suffix.lower() in GT_IMAGE_EXTENSIONS
+    ]
+    for index, path in enumerate(files, start=1):
+        mask_map[stem_to_frame_id(path, index)] = path
+    gt_state.mask_maps_by_video[video_id] = mask_map
+    return mask_map
+
+
+def _binary_metrics(
+    labels: list[int],
+    scores: list[float],
+    medium_threshold: float,
+    high_threshold: float,
+) -> dict[str, Any]:
+    y_true = np.asarray(labels, dtype=np.int32)
+    y_score = np.asarray(scores, dtype=np.float64)
+    positives = int(np.sum(y_true == 1))
+    negatives = int(np.sum(y_true == 0))
+    payload: dict[str, Any] = {
+        "num_frames": int(len(y_true)),
+        "positive_frames": positives,
+        "negative_frames": negatives,
+        "score_min": float(np.min(y_score)),
+        "score_mean": float(np.mean(y_score)),
+        "score_max": float(np.max(y_score)),
+        "roc_auc": None,
+        "pr_auc": None,
+        "eer": None,
+        "eer_threshold": None,
+        "best_f1": None,
+        "best_f1_threshold": None,
+        "youden_j": None,
+        "youden_threshold": None,
+        "thresholds": {
+            "medium": _threshold_metrics(y_true, y_score, medium_threshold),
+            "high": _threshold_metrics(y_true, y_score, high_threshold),
+        },
+        "warnings": [],
+    }
+    if positives == 0 or negatives == 0:
+        payload["warnings"].append("ROC-AUC/EER require both positive and negative frames")
+        return payload
+
+    payload["roc_auc"] = float(roc_auc_score(y_true, y_score))
+    payload["pr_auc"] = float(average_precision_score(y_true, y_score))
+
+    fpr, tpr, roc_thresholds = roc_curve(y_true, y_score)
+    fnr = 1.0 - tpr
+    eer_index = int(np.argmin(np.abs(fpr - fnr)))
+    payload["eer"] = float((fpr[eer_index] + fnr[eer_index]) / 2.0)
+    payload["eer_threshold"] = _finite_threshold(float(roc_thresholds[eer_index]), y_score)
+
+    youden_values = tpr - fpr
+    youden_index = int(np.argmax(youden_values))
+    payload["youden_j"] = float(youden_values[youden_index])
+    payload["youden_threshold"] = _finite_threshold(float(roc_thresholds[youden_index]), y_score)
+
+    precision, recall, pr_thresholds = precision_recall_curve(y_true, y_score)
+    f1 = np.divide(
+        2.0 * precision * recall,
+        precision + recall,
+        out=np.zeros_like(precision, dtype=np.float64),
+        where=(precision + recall) > 0.0,
+    )
+    f1_index = int(np.argmax(f1))
+    payload["best_f1"] = float(f1[f1_index])
+    if f1_index < len(pr_thresholds):
+        payload["best_f1_threshold"] = float(pr_thresholds[f1_index])
+    else:
+        payload["best_f1_threshold"] = float(np.min(y_score) - 1.0e-12)
+    return payload
+
+
+def _threshold_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float) -> dict[str, Any]:
+    y_pred = y_score >= threshold
+    positives = y_true == 1
+    negatives = y_true == 0
+    tp = int(np.sum(y_pred & positives))
+    fp = int(np.sum(y_pred & negatives))
+    tn = int(np.sum(~y_pred & negatives))
+    fn = int(np.sum(~y_pred & positives))
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    fpr = fp / (fp + tn) if fp + tn else 0.0
+    fnr = fn / (fn + tp) if fn + tp else 0.0
+    return {
+        "threshold": float(threshold),
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+        "precision": float(precision),
+        "recall": float(recall),
+        "fpr": float(fpr),
+        "fnr": float(fnr),
+    }
+
+
+def _finite_threshold(threshold: float, scores: np.ndarray) -> float:
+    if np.isfinite(threshold):
+        return float(threshold)
+    return float(np.max(scores) + 1.0e-12)
+
+
+def _write_frame_labels(path: Path, rows: list[dict[str, Any]], score_columns: list[str]) -> None:
+    columns = [
+        "dataset",
+        "split",
+        "video_id",
+        "frame_id",
+        "label",
+        "label_source",
+        "positive_pixels",
+        "mask_path",
+        "severity",
+        "top_cells",
+    ] + score_columns
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def _write_metrics_summary(path: Path, summary: dict[str, Any]) -> None:
+    lines = [
+        f"# SPEC 6 Evaluation - {summary['dataset']}",
+        "",
+        f"- Result dir: `{summary['result_dir']}`",
+        f"- Ground truth: `{summary['ground_truth']['label_source']}` from `{summary['ground_truth']['test_root']}`",
+        f"- Labeled frames: {summary['frames']['labeled_frames']} / {summary['frames']['scored_frames']}",
+        f"- Positive frames: {summary['frames']['positive_frames']}",
+        f"- Negative frames: {summary['frames']['negative_frames']}",
+        "",
+        "| score | ROC-AUC | PR-AUC | EER | Best F1 | EER threshold |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for column, metrics in summary["metrics"].items():
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    column,
+                    _md_float(metrics["roc_auc"]),
+                    _md_float(metrics["pr_auc"]),
+                    _md_float(metrics["eer"]),
+                    _md_float(metrics["best_f1"]),
+                    _md_float(metrics["eer_threshold"]),
+                ]
+            )
+            + " |"
+        )
+    if summary["warnings"]:
+        lines.extend(["", "## Warnings", ""])
+        lines.extend(f"- {warning}" for warning in summary["warnings"])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _md_float(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    return f"{float(value):.6f}"
 </file>
 
 <file path="src/kpdl_anomaly/rule_model.py">
@@ -11911,10 +12238,17 @@ from .config import load_anomaly_config
 from .scoring import score_features
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Score SPEC 3/5 anomaly models on test features.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="Model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--result-root", default=None, help="Override result root.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit test feature rows for smoke tests.")
@@ -11940,7 +12274,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_test(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     result_root: str | Path | None = None,
     limit_rows: int | None = None,
@@ -12266,56 +12600,6 @@ def _dedupe(tokens: list[str]) -> list[str]:
     return result
 </file>
 
-<file path="src/kpdl_preprocess/cli.py">
-from __future__ import annotations
-
-import argparse
-import json
-from pathlib import Path
-
-from .pipeline import run_preprocess
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run preprocessing for the anomaly detection pipeline.")
-    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative dataset paths are resolved here.")
-    parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed_smoke.")
-    parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
-    parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
-    parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
-    parser.add_argument(
-        "--progress-every",
-        type=int,
-        default=250,
-        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    stats = run_preprocess(
-        config_path=args.config,
-        project_root=Path(args.project_root),
-        output_root=args.output_root,
-        split=args.split,
-        limit_videos=args.limit_videos,
-        limit_frames=args.limit_frames,
-        progress_every=args.progress_every,
-    )
-    print(json.dumps(_public_stats(stats), indent=2))
-    return 0
-
-
-def _public_stats(stats: dict) -> dict:
-    return {
-        "dataset": stats.get("dataset"),
-        "output_dir": stats.get("output_dir"),
-        "splits": stats.get("splits"),
-    }
-</file>
-
 <file path="src/kpdl_preprocess/config.py">
 from __future__ import annotations
 
@@ -12338,7 +12622,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     except ImportError as exc:
         raise ConfigError(
             "PyYAML is required to read YAML config files. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
 
     with config_path.open("r", encoding="utf-8") as handle:
@@ -12501,7 +12785,7 @@ def _farneback_motion(frames: np.ndarray, config: dict) -> tuple[np.ndarray, np.
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for Farneback optical flow. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
 
     params = dict(get_nested(config, "features", "farneback", default={}) or {})
@@ -12581,331 +12865,6 @@ def _safe_std(values: np.ndarray) -> float:
     return result if np.isfinite(result) else 0.0
 </file>
 
-<file path="src/kpdl_preprocess/pipeline.py">
-from __future__ import annotations
-
-import csv
-import json
-import sys
-from collections import defaultdict, deque
-from datetime import datetime, timezone
-from pathlib import Path
-
-from .config import get_nested, load_config, resolve_path
-from .datasets import scan_dataset
-from .features import extract_cube_features
-from .grid import generate_grid, grid_to_json
-from .readers import iter_preprocessed_frames, probe_video
-from .records import FrameRecord, VideoSource
-from .schema import FRAME_MANIFEST_COLUMNS, SCHEMA_VERSION, VIDEO_MANIFEST_COLUMNS, feature_columns
-from .utils import ensure_dir
-
-
-def run_preprocess(
-    config_path: str | Path,
-    project_root: str | Path,
-    output_root: str | Path | None = None,
-    split: str | None = None,
-    limit_videos: int | None = None,
-    limit_frames: int | None = None,
-    progress_every: int | None = None,
-) -> dict:
-    config = load_config(config_path)
-    project_root = Path(project_root).resolve()
-    dataset = str(get_nested(config, "data", "dataset"))
-    direction_bins = int(get_nested(config, "features", "direction_bins", default=8))
-    resize_width = int(get_nested(config, "video", "resize_width"))
-    resize_height = int(get_nested(config, "video", "resize_height"))
-    grid_rows = int(get_nested(config, "grid", "rows"))
-    grid_cols = int(get_nested(config, "grid", "cols"))
-    ignore_cells = list(get_nested(config, "grid", "ignore_cells", default=[]) or [])
-    cube_length = int(get_nested(config, "cube", "length"))
-    cube_stride = int(get_nested(config, "cube", "stride"))
-
-    output_root_value = output_root or get_nested(config, "output", "root", default="outputs/preprocessed")
-    output_base = ensure_dir(resolve_path(output_root_value, project_root) / dataset)
-
-    cells = generate_grid(resize_width, resize_height, grid_rows, grid_cols, ignore_cells)
-    grid_payload = grid_to_json(cells, resize_width, resize_height, grid_rows, grid_cols)
-    with (output_base / "grid.json").open("w", encoding="utf-8") as handle:
-        json.dump(grid_payload, handle, indent=2)
-
-    sources = scan_dataset(config, project_root, split)
-    sources = _limit_sources_per_split(sources, limit_videos)
-    active_splits = sorted({source.split for source in sources} or ({split} if split else {"train", "test"}))
-
-    stats = _new_stats(dataset, grid_payload, config_path, active_splits, direction_bins)
-    with (output_base / "frames_manifest.csv").open("w", newline="", encoding="utf-8") as frames_file, (
-        output_base / "videos_manifest.csv"
-    ).open("w", newline="", encoding="utf-8") as videos_file:
-        frame_writer = csv.DictWriter(frames_file, fieldnames=FRAME_MANIFEST_COLUMNS)
-        video_writer = csv.DictWriter(videos_file, fieldnames=VIDEO_MANIFEST_COLUMNS)
-        frame_writer.writeheader()
-        video_writer.writeheader()
-
-        feature_files = {}
-        feature_writers = {}
-        try:
-            columns = feature_columns(direction_bins)
-            for split_name in active_splits:
-                feature_path = output_base / f"features_{split_name}.csv"
-                handle = feature_path.open("w", newline="", encoding="utf-8")
-                feature_files[split_name] = handle
-                writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
-                writer.writeheader()
-                feature_writers[split_name] = writer
-
-            source_total = len(sources)
-            for source_index, source in enumerate(sources, start=1):
-                _process_source(
-                    source=source,
-                    config=config,
-                    cells=cells,
-                    frame_writer=frame_writer,
-                    video_writer=video_writer,
-                    feature_writer=feature_writers[source.split],
-                    stats=stats,
-                    source_index=source_index,
-                    source_total=source_total,
-                    cube_length=cube_length,
-                    cube_stride=cube_stride,
-                    limit_frames=limit_frames,
-                    progress_every=progress_every,
-                )
-        finally:
-            for handle in feature_files.values():
-                handle.close()
-
-    _finalize_stats(stats)
-
-    stats["output_dir"] = str(output_base)
-
-    stats_path = output_base / "preprocess_stats.json"
-    with stats_path.open("w", encoding="utf-8") as handle:
-        json.dump(stats, handle, indent=2)
-
-    return stats
-
-
-def _process_source(
-    source: VideoSource,
-    config: dict,
-    cells: list,
-    frame_writer: csv.DictWriter,
-    video_writer: csv.DictWriter,
-    feature_writer: csv.DictWriter,
-    stats: dict,
-    source_index: int,
-    source_total: int,
-    cube_length: int,
-    cube_stride: int,
-    limit_frames: int | None,
-    progress_every: int | None,
-) -> None:
-    split_stats = stats["splits"][source.split]
-    split_stats["num_videos"] += 1
-
-    video_probe = probe_video(source)
-    num_frames = 0
-    num_cubes = 0
-    original_width = video_probe.get("original_width")
-    original_height = video_probe.get("original_height")
-    expected_frames = _expected_frame_count(video_probe.get("num_frames_hint"), limit_frames)
-    buffer: deque[FrameRecord] = deque(maxlen=cube_length)
-    should_log_progress = progress_every is not None and progress_every > 0
-
-    if should_log_progress:
-        _progress(
-            f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
-            f"start, expected_frames={_blank_none(expected_frames)}"
-        )
-
-    try:
-        for frame in iter_preprocessed_frames(source, config, limit_frames=limit_frames):
-            num_frames += 1
-            if original_width is None:
-                original_width = frame.original_width
-            if original_height is None:
-                original_height = frame.original_height
-            frame_writer.writerow(_frame_manifest_row(frame))
-            buffer.append(frame)
-
-            if len(buffer) == cube_length:
-                start_index = num_frames - cube_length
-                if start_index % cube_stride == 0:
-                    num_cubes += 1
-                    cube = list(buffer)
-                    cube_id = f"{source.video_id}_{cube[0].frame_id:06d}_{cube[-1].frame_id:06d}"
-                    rows = extract_cube_features(cube_id, cube, cells, config)
-                    for row in rows:
-                        feature_writer.writerow(row)
-                        split_stats["num_feature_rows"] += 1
-                        split_stats["_motion_density_sum"] += float(row["motion_density"])
-                        split_stats["_brightness_sum"] += float(row["brightness_mean"])
-                        split_stats["_feature_value_count"] += 1
-            if should_log_progress and num_frames % progress_every == 0:
-                _progress(
-                    f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
-                    f"frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
-                )
-
-        split_stats["num_frames"] += num_frames
-        split_stats["num_cubes"] += num_cubes
-        if expected_frames is not None and num_frames < expected_frames:
-            split_stats["missing_frames"] += expected_frames - num_frames
-        video_writer.writerow(
-            {
-                "dataset": source.dataset,
-                "split": source.split,
-                "video_id": source.video_id,
-                "source_path": str(source.source_path),
-                "input_type": source.input_type,
-                "fps": _blank_none(video_probe.get("fps")),
-                "num_frames": num_frames,
-                "num_cubes": num_cubes,
-                "original_width": _blank_none(original_width),
-                "original_height": _blank_none(original_height),
-                "failed": False,
-                "error": "",
-            }
-        )
-        if should_log_progress:
-            _progress(
-                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
-                f"done, frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
-            )
-    except Exception as exc:
-        split_stats["failed_videos"] += 1
-        video_writer.writerow(
-            {
-                "dataset": source.dataset,
-                "split": source.split,
-                "video_id": source.video_id,
-                "source_path": str(source.source_path),
-                "input_type": source.input_type,
-                "fps": _blank_none(video_probe.get("fps")),
-                "num_frames": num_frames,
-                "num_cubes": num_cubes,
-                "original_width": _blank_none(original_width),
-                "original_height": _blank_none(original_height),
-                "failed": True,
-                "error": str(exc),
-            }
-        )
-        if should_log_progress:
-            _progress(
-                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
-                f"failed after frames={num_frames}, error={exc}"
-            )
-
-
-def _frame_manifest_row(frame: FrameRecord) -> dict[str, object]:
-    return {
-        "dataset": frame.dataset,
-        "split": frame.split,
-        "video_id": frame.video_id,
-        "frame_id": frame.frame_id,
-        "timestamp": _blank_none(frame.timestamp),
-        "source_path": str(frame.source_path),
-        "original_width": frame.original_width,
-        "original_height": frame.original_height,
-        "resized_width": frame.resized_width,
-        "resized_height": frame.resized_height,
-    }
-
-
-def _limit_sources_per_split(sources: list[VideoSource], limit_videos: int | None) -> list[VideoSource]:
-    if limit_videos is None:
-        return sources
-    counts: dict[str, int] = defaultdict(int)
-    limited: list[VideoSource] = []
-    for source in sources:
-        if counts[source.split] >= limit_videos:
-            continue
-        limited.append(source)
-        counts[source.split] += 1
-    return limited
-
-
-def _new_stats(
-    dataset: str,
-    grid_payload: dict,
-    config_path: str | Path,
-    splits: list[str],
-    direction_bins: int,
-) -> dict:
-    return {
-        "dataset": dataset,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "config_path": str(config_path),
-        "schema": {
-            "version": SCHEMA_VERSION,
-            "frames_manifest_columns": FRAME_MANIFEST_COLUMNS,
-            "videos_manifest_columns": VIDEO_MANIFEST_COLUMNS,
-            "feature_columns": feature_columns(direction_bins),
-        },
-        "grid": {
-            "rows": grid_payload["rows"],
-            "cols": grid_payload["cols"],
-            "num_cells": grid_payload["num_cells"],
-            "resized_width": grid_payload["resized_width"],
-            "resized_height": grid_payload["resized_height"],
-        },
-        "splits": {split: _empty_split_stats(grid_payload["num_cells"]) for split in splits},
-    }
-
-
-def _empty_split_stats(num_cells: int) -> dict:
-    return {
-        "num_videos": 0,
-        "num_frames": 0,
-        "num_cubes": 0,
-        "num_cells": num_cells,
-        "num_feature_rows": 0,
-        "missing_frames": 0,
-        "failed_videos": 0,
-        "avg_motion_density": 0.0,
-        "avg_brightness": 0.0,
-        "_motion_density_sum": 0.0,
-        "_brightness_sum": 0.0,
-        "_feature_value_count": 0,
-    }
-
-
-def _finalize_stats(stats: dict) -> None:
-    for split_stats in stats["splits"].values():
-        count = split_stats.pop("_feature_value_count", 0)
-        motion_sum = split_stats.pop("_motion_density_sum", 0.0)
-        brightness_sum = split_stats.pop("_brightness_sum", 0.0)
-        if count:
-            split_stats["avg_motion_density"] = motion_sum / count
-            split_stats["avg_brightness"] = brightness_sum / count
-
-
-def _blank_none(value: object) -> object:
-    return "" if value is None else value
-
-
-def _expected_frame_count(num_frames_hint: object, limit_frames: int | None) -> int | None:
-    try:
-        hint = int(num_frames_hint) if num_frames_hint is not None else None
-    except (TypeError, ValueError):
-        hint = None
-    if hint is not None and hint <= 0:
-        hint = None
-    if limit_frames is not None:
-        return min(limit_frames, hint) if hint is not None else limit_frames
-    return hint
-
-
-def _progress_total(expected_frames: int | None) -> str:
-    return f"/{expected_frames}" if expected_frames is not None else ""
-
-
-def _progress(message: str) -> None:
-    print(message, file=sys.stderr, flush=True)
-</file>
-
 <file path="src/kpdl_preprocess/readers.py">
 from __future__ import annotations
 
@@ -12925,7 +12884,7 @@ def _cv2():
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for preprocessing. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
     return cv2
 
@@ -13137,200 +13096,6 @@ def feature_columns(direction_bins: int = 8) -> list[str]:
         + [f"direction_hist_{index}" for index in range(direction_bins)]
         + TAIL_FEATURE_COLUMNS
     )
-</file>
-
-<file path="src/tool/_common.py">
-from __future__ import annotations
-
-import argparse
-import json
-import sys
-from pathlib import Path
-
-SRC_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = SRC_ROOT.parent
-
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from kpdl_preprocess.pipeline import run_preprocess
-
-
-def add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--project-root", default=str(PROJECT_ROOT), help="Project root for resolving dataset paths.")
-    parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed.")
-    parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
-    parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
-    parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
-    parser.add_argument(
-        "--progress-every",
-        type=int,
-        default=250,
-        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
-    )
-
-
-def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
-    stats = run_preprocess(
-        config_path=config_path,
-        project_root=Path(args.project_root),
-        output_root=args.output_root,
-        split=args.split,
-        limit_videos=args.limit_videos,
-        limit_frames=args.limit_frames,
-        progress_every=args.progress_every,
-    )
-    print(json.dumps(_summary(stats), indent=2, ensure_ascii=False))
-    return 0
-
-
-def _summary(stats: dict) -> dict:
-    schema = stats.get("schema", {})
-    return {
-        "dataset": stats.get("dataset"),
-        "output_dir": stats.get("output_dir"),
-        "schema_version": schema.get("version"),
-        "feature_columns": schema.get("feature_columns"),
-        "splits": stats.get("splits"),
-    }
-</file>
-
-<file path="src/configs/avenue.yaml">
-data:
-  dataset: "avenue"
-  root: "src/dataset/CUHK-avenue"
-  train_path: "training_videos"
-  test_path: "testing_videos"
-
-video:
-  input_type: "video"
-  resize_width: 320
-  resize_height: 240
-  grayscale: true
-  blur:
-    enabled: true
-    kernel_size: 3
-  brightness_normalization:
-    enabled: false
-
-grid:
-  rows: 12
-  cols: 16
-  ignore_cells: []
-
-cube:
-  length: 5
-  stride: 1
-
-features:
-  motion_method: "frame_diff"
-  frame_diff_threshold: 15
-  direction_bins: 8
-  use_brightness: true
-
-output:
-  root: "src/outputs/preprocessed"
-
-rules:
-  enabled: true
-  output_root: "src/outputs/rules"
-  model_dir: null
-  algorithm: "bounded_apriori"
-  min_support: 0.01
-  min_confidence: 0.60
-  min_lift: 1.05
-  max_itemset_size: 3
-  max_rules: 200
-  include_cell_token: true
-  include_cluster_token: true
-  include_brightness_token: true
-  include_direction_token: false
-  rare_itemset_size: 3
-  rare_support_floor: 0.001
-  rare_score_cap: 1.0
-
-visualization:
-  output_root: "src/outputs/visualizations"
-  colormap: "JET"
-  alpha: 0.45
-  heatmap_normalization: "per_frame"
-  draw_grid: false
-  draw_top_cells: true
-  top_cells_per_frame: 5
-  top_frames: 30
-  min_score: 0.70
-  frame_source: "preprocessed"
-  image_format: "png"
-  video_fps: 10
-</file>
-
-<file path="src/configs/ucsd_ped1.yaml">
-data:
-  dataset: "ucsd_ped1"
-  root: "src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped1"
-  train_path: "Train"
-  test_path: "Test"
-
-video:
-  input_type: "frame_sequence"
-  resize_width: 320
-  resize_height: 240
-  grayscale: true
-  blur:
-    enabled: true
-    kernel_size: 3
-  brightness_normalization:
-    enabled: false
-
-grid:
-  rows: 12
-  cols: 16
-  ignore_cells: []
-
-cube:
-  length: 5
-  stride: 1
-
-features:
-  motion_method: "frame_diff"
-  frame_diff_threshold: 15
-  direction_bins: 8
-  use_brightness: true
-
-output:
-  root: "src/outputs/preprocessed"
-
-rules:
-  enabled: true
-  output_root: "src/outputs/rules"
-  model_dir: null
-  algorithm: "bounded_apriori"
-  min_support: 0.01
-  min_confidence: 0.60
-  min_lift: 1.05
-  max_itemset_size: 3
-  max_rules: 200
-  include_cell_token: true
-  include_cluster_token: true
-  include_brightness_token: true
-  include_direction_token: false
-  rare_itemset_size: 3
-  rare_support_floor: 0.001
-  rare_score_cap: 1.0
-
-visualization:
-  output_root: "src/outputs/visualizations"
-  colormap: "JET"
-  alpha: 0.45
-  heatmap_normalization: "per_frame"
-  draw_grid: false
-  draw_top_cells: true
-  top_cells_per_frame: 5
-  top_frames: 30
-  min_score: 0.70
-  frame_source: "preprocessed"
-  image_format: "png"
-  video_fps: 10
 </file>
 
 <file path="src/doc/spec_1_processed.md">
@@ -13759,11 +13524,393 @@ Spec gốc: `src/doc/spec_1.md`
 - [ ] Chưa chạy full Avenue lại trong bước này vì full dataset sẽ tạo khoảng `5.85M` dòng feature trước khi export ARFF.
 </file>
 
+<file path="src/kpdl_preprocess/cli.py">
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from .pipeline import run_preprocess
+
+
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run preprocessing for the anomaly detection pipeline.")
+    parser.add_argument("--config", required=True, help="Path to a YAML config file.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
+    parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed_smoke.")
+    parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
+    parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
+    parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=250,
+        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    stats = run_preprocess(
+        config_path=args.config,
+        project_root=Path(args.project_root),
+        output_root=args.output_root,
+        split=args.split,
+        limit_videos=args.limit_videos,
+        limit_frames=args.limit_frames,
+        progress_every=args.progress_every,
+    )
+    print(json.dumps(_public_stats(stats), indent=2))
+    return 0
+
+
+def _public_stats(stats: dict) -> dict:
+    return {
+        "dataset": stats.get("dataset"),
+        "output_dir": stats.get("output_dir"),
+        "splits": stats.get("splits"),
+    }
+</file>
+
+<file path="src/kpdl_preprocess/pipeline.py">
+from __future__ import annotations
+
+import csv
+import json
+import sys
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .config import get_nested, load_config, resolve_path
+from .datasets import scan_dataset
+from .features import extract_cube_features
+from .grid import generate_grid, grid_to_json
+from .readers import iter_preprocessed_frames, probe_video
+from .records import FrameRecord, VideoSource
+from .schema import FRAME_MANIFEST_COLUMNS, SCHEMA_VERSION, VIDEO_MANIFEST_COLUMNS, feature_columns
+from .utils import ensure_dir
+
+
+def run_preprocess(
+    config_path: str | Path,
+    project_root: str | Path,
+    output_root: str | Path | None = None,
+    split: str | None = None,
+    limit_videos: int | None = None,
+    limit_frames: int | None = None,
+    progress_every: int | None = None,
+) -> dict:
+    config = load_config(config_path)
+    project_root = Path(project_root).resolve()
+    dataset = str(get_nested(config, "data", "dataset"))
+    direction_bins = int(get_nested(config, "features", "direction_bins", default=8))
+    resize_width = int(get_nested(config, "video", "resize_width"))
+    resize_height = int(get_nested(config, "video", "resize_height"))
+    grid_rows = int(get_nested(config, "grid", "rows"))
+    grid_cols = int(get_nested(config, "grid", "cols"))
+    ignore_cells = list(get_nested(config, "grid", "ignore_cells", default=[]) or [])
+    cube_length = int(get_nested(config, "cube", "length"))
+    cube_stride = int(get_nested(config, "cube", "stride"))
+
+    output_root_value = output_root or get_nested(config, "output", "root", default="outputs/preprocessed")
+    output_base = ensure_dir(resolve_path(output_root_value, project_root) / dataset)
+
+    cells = generate_grid(resize_width, resize_height, grid_rows, grid_cols, ignore_cells)
+    grid_payload = grid_to_json(cells, resize_width, resize_height, grid_rows, grid_cols)
+    with (output_base / "grid.json").open("w", encoding="utf-8") as handle:
+        json.dump(grid_payload, handle, indent=2)
+
+    sources = scan_dataset(config, project_root, split)
+    sources = _limit_sources_per_split(sources, limit_videos)
+    active_splits = sorted({source.split for source in sources} or ({split} if split else {"train", "test"}))
+
+    stats = _new_stats(dataset, grid_payload, config_path, active_splits, direction_bins)
+    with (output_base / "frames_manifest.csv").open("w", newline="", encoding="utf-8") as frames_file, (
+        output_base / "videos_manifest.csv"
+    ).open("w", newline="", encoding="utf-8") as videos_file:
+        frame_writer = csv.DictWriter(frames_file, fieldnames=FRAME_MANIFEST_COLUMNS)
+        video_writer = csv.DictWriter(videos_file, fieldnames=VIDEO_MANIFEST_COLUMNS)
+        frame_writer.writeheader()
+        video_writer.writeheader()
+
+        feature_files = {}
+        feature_writers = {}
+        try:
+            columns = feature_columns(direction_bins)
+            for split_name in active_splits:
+                feature_path = output_base / f"features_{split_name}.csv"
+                handle = feature_path.open("w", newline="", encoding="utf-8")
+                feature_files[split_name] = handle
+                writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+                writer.writeheader()
+                feature_writers[split_name] = writer
+
+            source_total = len(sources)
+            for source_index, source in enumerate(sources, start=1):
+                _process_source(
+                    source=source,
+                    config=config,
+                    cells=cells,
+                    frame_writer=frame_writer,
+                    video_writer=video_writer,
+                    feature_writer=feature_writers[source.split],
+                    stats=stats,
+                    source_index=source_index,
+                    source_total=source_total,
+                    cube_length=cube_length,
+                    cube_stride=cube_stride,
+                    limit_frames=limit_frames,
+                    progress_every=progress_every,
+                )
+        finally:
+            for handle in feature_files.values():
+                handle.close()
+
+    _finalize_stats(stats)
+
+    stats["output_dir"] = str(output_base)
+
+    stats_path = output_base / "preprocess_stats.json"
+    with stats_path.open("w", encoding="utf-8") as handle:
+        json.dump(stats, handle, indent=2)
+
+    return stats
+
+
+def _process_source(
+    source: VideoSource,
+    config: dict,
+    cells: list,
+    frame_writer: csv.DictWriter,
+    video_writer: csv.DictWriter,
+    feature_writer: csv.DictWriter,
+    stats: dict,
+    source_index: int,
+    source_total: int,
+    cube_length: int,
+    cube_stride: int,
+    limit_frames: int | None,
+    progress_every: int | None,
+) -> None:
+    split_stats = stats["splits"][source.split]
+    split_stats["num_videos"] += 1
+
+    video_probe = probe_video(source)
+    num_frames = 0
+    num_cubes = 0
+    original_width = video_probe.get("original_width")
+    original_height = video_probe.get("original_height")
+    expected_frames = _expected_frame_count(video_probe.get("num_frames_hint"), limit_frames)
+    buffer: deque[FrameRecord] = deque(maxlen=cube_length)
+    should_log_progress = progress_every is not None and progress_every > 0
+
+    if should_log_progress:
+        _progress(
+            f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+            f"start, expected_frames={_blank_none(expected_frames)}"
+        )
+
+    try:
+        for frame in iter_preprocessed_frames(source, config, limit_frames=limit_frames):
+            num_frames += 1
+            if original_width is None:
+                original_width = frame.original_width
+            if original_height is None:
+                original_height = frame.original_height
+            frame_writer.writerow(_frame_manifest_row(frame))
+            buffer.append(frame)
+
+            if len(buffer) == cube_length:
+                start_index = num_frames - cube_length
+                if start_index % cube_stride == 0:
+                    num_cubes += 1
+                    cube = list(buffer)
+                    cube_id = f"{source.video_id}_{cube[0].frame_id:06d}_{cube[-1].frame_id:06d}"
+                    rows = extract_cube_features(cube_id, cube, cells, config)
+                    for row in rows:
+                        feature_writer.writerow(row)
+                        split_stats["num_feature_rows"] += 1
+                        split_stats["_motion_density_sum"] += float(row["motion_density"])
+                        split_stats["_brightness_sum"] += float(row["brightness_mean"])
+                        split_stats["_feature_value_count"] += 1
+            if should_log_progress and num_frames % progress_every == 0:
+                _progress(
+                    f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                    f"frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+                )
+
+        split_stats["num_frames"] += num_frames
+        split_stats["num_cubes"] += num_cubes
+        if expected_frames is not None and num_frames < expected_frames:
+            split_stats["missing_frames"] += expected_frames - num_frames
+        video_writer.writerow(
+            {
+                "dataset": source.dataset,
+                "split": source.split,
+                "video_id": source.video_id,
+                "source_path": str(source.source_path),
+                "input_type": source.input_type,
+                "fps": _blank_none(video_probe.get("fps")),
+                "num_frames": num_frames,
+                "num_cubes": num_cubes,
+                "original_width": _blank_none(original_width),
+                "original_height": _blank_none(original_height),
+                "failed": False,
+                "error": "",
+            }
+        )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"done, frames={num_frames}{_progress_total(expected_frames)}, cubes={num_cubes}"
+            )
+    except Exception as exc:
+        split_stats["failed_videos"] += 1
+        video_writer.writerow(
+            {
+                "dataset": source.dataset,
+                "split": source.split,
+                "video_id": source.video_id,
+                "source_path": str(source.source_path),
+                "input_type": source.input_type,
+                "fps": _blank_none(video_probe.get("fps")),
+                "num_frames": num_frames,
+                "num_cubes": num_cubes,
+                "original_width": _blank_none(original_width),
+                "original_height": _blank_none(original_height),
+                "failed": True,
+                "error": str(exc),
+            }
+        )
+        if should_log_progress:
+            _progress(
+                f"[{source_index}/{source_total}] {source.split}/{source.video_id}: "
+                f"failed after frames={num_frames}, error={exc}"
+            )
+
+
+def _frame_manifest_row(frame: FrameRecord) -> dict[str, object]:
+    return {
+        "dataset": frame.dataset,
+        "split": frame.split,
+        "video_id": frame.video_id,
+        "frame_id": frame.frame_id,
+        "timestamp": _blank_none(frame.timestamp),
+        "source_path": str(frame.source_path),
+        "original_width": frame.original_width,
+        "original_height": frame.original_height,
+        "resized_width": frame.resized_width,
+        "resized_height": frame.resized_height,
+    }
+
+
+def _limit_sources_per_split(sources: list[VideoSource], limit_videos: int | None) -> list[VideoSource]:
+    if limit_videos is None:
+        return sources
+    counts: dict[str, int] = defaultdict(int)
+    limited: list[VideoSource] = []
+    for source in sources:
+        if counts[source.split] >= limit_videos:
+            continue
+        limited.append(source)
+        counts[source.split] += 1
+    return limited
+
+
+def _new_stats(
+    dataset: str,
+    grid_payload: dict,
+    config_path: str | Path,
+    splits: list[str],
+    direction_bins: int,
+) -> dict:
+    return {
+        "dataset": dataset,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "config_path": str(config_path),
+        "schema": {
+            "version": SCHEMA_VERSION,
+            "frames_manifest_columns": FRAME_MANIFEST_COLUMNS,
+            "videos_manifest_columns": VIDEO_MANIFEST_COLUMNS,
+            "feature_columns": feature_columns(direction_bins),
+        },
+        "grid": {
+            "rows": grid_payload["rows"],
+            "cols": grid_payload["cols"],
+            "num_cells": grid_payload["num_cells"],
+            "resized_width": grid_payload["resized_width"],
+            "resized_height": grid_payload["resized_height"],
+        },
+        "splits": {split: _empty_split_stats(grid_payload["num_cells"]) for split in splits},
+    }
+
+
+def _empty_split_stats(num_cells: int) -> dict:
+    return {
+        "num_videos": 0,
+        "num_frames": 0,
+        "num_cubes": 0,
+        "num_cells": num_cells,
+        "num_feature_rows": 0,
+        "missing_frames": 0,
+        "failed_videos": 0,
+        "avg_motion_density": 0.0,
+        "avg_brightness": 0.0,
+        "_motion_density_sum": 0.0,
+        "_brightness_sum": 0.0,
+        "_feature_value_count": 0,
+    }
+
+
+def _finalize_stats(stats: dict) -> None:
+    for split_stats in stats["splits"].values():
+        count = split_stats.pop("_feature_value_count", 0)
+        motion_sum = split_stats.pop("_motion_density_sum", 0.0)
+        brightness_sum = split_stats.pop("_brightness_sum", 0.0)
+        if count:
+            split_stats["avg_motion_density"] = motion_sum / count
+            split_stats["avg_brightness"] = brightness_sum / count
+
+
+def _blank_none(value: object) -> object:
+    return "" if value is None else value
+
+
+def _expected_frame_count(num_frames_hint: object, limit_frames: int | None) -> int | None:
+    try:
+        hint = int(num_frames_hint) if num_frames_hint is not None else None
+    except (TypeError, ValueError):
+        hint = None
+    if hint is not None and hint <= 0:
+        hint = None
+    if limit_frames is not None:
+        return min(limit_frames, hint) if hint is not None else limit_frames
+    return hint
+
+
+def _progress_total(expected_frames: int | None) -> str:
+    return f"/{expected_frames}" if expected_frames is not None else ""
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+</file>
+
 <file path="src/requirements.txt">
 # Runtime dependencies for the KPDL anomaly detection pipeline.
 #
-# Install from the repository root with:
-#   python -m pip install -r src/requirements.txt
+# Install from the src directory with:
+#   python -m pip install -r requirements.txt
 
 # Numeric arrays and feature processing.
 numpy>=1.24
@@ -13771,7 +13918,7 @@ numpy>=1.24
 # Video/image IO, frame preprocessing, heatmap rendering, and MP4 export.
 opencv-python-headless>=4.8
 
-# YAML configuration files in src/configs/.
+# YAML configuration files in configs/.
 PyYAML>=6.0
 
 # Per-cell MiniBatchKMeans and StandardScaler models.
@@ -13781,10 +13928,139 @@ scikit-learn>=1.3
 joblib>=1.3
 </file>
 
-<file path="src/configs/ucsd_ped2.yaml">
+<file path="src/tool/_common.py">
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+SRC_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = SRC_ROOT
+
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from kpdl_preprocess.pipeline import run_preprocess
+
+
+def add_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(PROJECT_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
+    parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed.")
+    parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
+    parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")
+    parser.add_argument("--limit-frames", type=int, default=None, help="Limit frames per video/sequence for smoke tests.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=250,
+        help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
+    )
+
+
+def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
+    stats = run_preprocess(
+        config_path=config_path,
+        project_root=Path(args.project_root),
+        output_root=args.output_root,
+        split=args.split,
+        limit_videos=args.limit_videos,
+        limit_frames=args.limit_frames,
+        progress_every=args.progress_every,
+    )
+    print(json.dumps(_summary(stats), indent=2, ensure_ascii=False))
+    return 0
+
+
+def _summary(stats: dict) -> dict:
+    schema = stats.get("schema", {})
+    return {
+        "dataset": stats.get("dataset"),
+        "output_dir": stats.get("output_dir"),
+        "schema_version": schema.get("version"),
+        "feature_columns": schema.get("feature_columns"),
+        "splits": stats.get("splits"),
+    }
+</file>
+
+<file path="src/configs/avenue.yaml">
 data:
-  dataset: "ucsd_ped2"
-  root: "src/dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
+  dataset: "avenue"
+  root: "dataset/CUHK-avenue"
+  train_path: "training_videos"
+  test_path: "testing_videos"
+
+video:
+  input_type: "video"
+  resize_width: 320
+  resize_height: 240
+  grayscale: true
+  blur:
+    enabled: true
+    kernel_size: 3
+  brightness_normalization:
+    enabled: false
+
+grid:
+  rows: 12
+  cols: 16
+  ignore_cells: []
+
+cube:
+  length: 5
+  stride: 1
+
+features:
+  motion_method: "frame_diff"
+  frame_diff_threshold: 15
+  direction_bins: 8
+  use_brightness: true
+
+output:
+  root: "outputs/preprocessed"
+
+rules:
+  enabled: true
+  output_root: "outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
+visualization:
+  output_root: "outputs/visualizations"
+  colormap: "JET"
+  alpha: 0.45
+  heatmap_normalization: "per_frame"
+  draw_grid: false
+  draw_top_cells: true
+  top_cells_per_frame: 5
+  top_frames: 30
+  min_score: 0.70
+  frame_source: "preprocessed"
+  image_format: "png"
+  video_fps: 10
+</file>
+
+<file path="src/configs/ucsd_ped1.yaml">
+data:
+  dataset: "ucsd_ped1"
+  root: "dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped1"
   train_path: "Train"
   test_path: "Test"
 
@@ -13815,9 +14091,78 @@ features:
   use_brightness: true
 
 output:
-  root: "src/outputs/preprocessed"
-  model_root: "src/outputs/models"
-  result_root: "src/outputs/results"
+  root: "outputs/preprocessed"
+
+rules:
+  enabled: true
+  output_root: "outputs/rules"
+  model_dir: null
+  algorithm: "bounded_apriori"
+  min_support: 0.01
+  min_confidence: 0.60
+  min_lift: 1.05
+  max_itemset_size: 3
+  max_rules: 200
+  include_cell_token: true
+  include_cluster_token: true
+  include_brightness_token: true
+  include_direction_token: false
+  rare_itemset_size: 3
+  rare_support_floor: 0.001
+  rare_score_cap: 1.0
+
+visualization:
+  output_root: "outputs/visualizations"
+  colormap: "JET"
+  alpha: 0.45
+  heatmap_normalization: "per_frame"
+  draw_grid: false
+  draw_top_cells: true
+  top_cells_per_frame: 5
+  top_frames: 30
+  min_score: 0.70
+  frame_source: "preprocessed"
+  image_format: "png"
+  video_fps: 10
+</file>
+
+<file path="src/configs/ucsd_ped2.yaml">
+data:
+  dataset: "ucsd_ped2"
+  root: "dataset/UCSD_Anomaly_Dataset.v1p2/UCSDped2"
+  train_path: "Train"
+  test_path: "Test"
+
+video:
+  input_type: "frame_sequence"
+  resize_width: 320
+  resize_height: 240
+  grayscale: true
+  blur:
+    enabled: true
+    kernel_size: 3
+  brightness_normalization:
+    enabled: false
+
+grid:
+  rows: 12
+  cols: 16
+  ignore_cells: []
+
+cube:
+  length: 5
+  stride: 1
+
+features:
+  motion_method: "frame_diff"
+  frame_diff_threshold: 15
+  direction_bins: 8
+  use_brightness: true
+
+output:
+  root: "outputs/preprocessed"
+  model_root: "outputs/models"
+  result_root: "outputs/results"
 
 model:
   type: "minibatch_kmeans"
@@ -13849,7 +14194,7 @@ scoring:
 
 rules:
   enabled: true
-  output_root: "src/outputs/rules"
+  output_root: "outputs/rules"
   model_dir: null
   algorithm: "bounded_apriori"
   min_support: 0.01
@@ -13866,7 +14211,7 @@ rules:
   rare_score_cap: 1.0
 
 visualization:
-  output_root: "src/outputs/visualizations"
+  output_root: "outputs/visualizations"
   colormap: "JET"
   alpha: 0.45
   heatmap_normalization: "per_frame"
@@ -13880,7 +14225,7 @@ visualization:
   video_fps: 10
 
 evaluation:
-  output_root: "src/outputs/evaluation"
+  output_root: "outputs/evaluation"
   label_source: "auto"
   score_columns:
     - frame_score

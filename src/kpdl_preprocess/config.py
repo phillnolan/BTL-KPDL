@@ -19,7 +19,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     except ImportError as exc:
         raise ConfigError(
             "PyYAML is required to read YAML config files. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
 
     with config_path.open("r", encoding="utf-8") as handle:

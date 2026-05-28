@@ -10,10 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from kpdl_anomaly.visualization import run_visualization
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render SPEC 4 anomaly heatmap overlays.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--result-dir", default=None, help="Override SPEC 3 result directory.")
     parser.add_argument("--output-dir", default=None, help="Override visualization output directory.")
     parser.add_argument("--top-frames", type=int, default=None, help="Export the top N anomaly frames.")

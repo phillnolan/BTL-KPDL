@@ -10,10 +10,17 @@ from .config import load_anomaly_config
 from .scoring import score_features
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Score SPEC 3/5 anomaly models on test features.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="Model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--result-root", default=None, help="Override result root.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit test feature rows for smoke tests.")
@@ -39,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_test(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     result_root: str | Path | None = None,
     limit_rows: int | None = None,

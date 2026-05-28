@@ -14,10 +14,17 @@ from .modeling import train_per_cell
 from .schema import SCHEMA_VERSION
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train SPEC 3 per-cell anomaly models.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model-root", default=None, help="Override output model root.")
     parser.add_argument("--clusters-per-cell", type=int, default=None, help="Override model.clusters_per_cell.")
     parser.add_argument("--threshold-percentile", type=float, default=None, help="Override model threshold percentile.")
@@ -41,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_train(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_root: str | Path | None = None,
     clusters_per_cell: int | None = None,
     threshold_percentile: float | None = None,

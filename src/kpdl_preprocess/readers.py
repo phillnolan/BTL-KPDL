@@ -16,7 +16,7 @@ def _cv2():
     except ImportError as exc:
         raise ConfigError(
             "OpenCV is required for preprocessing. "
-            "Install dependencies with: python -m pip install -r src/requirements.txt"
+            "Install dependencies with: python -m pip install -r requirements.txt"
         ) from exc
     return cv2
 

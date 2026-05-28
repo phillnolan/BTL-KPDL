@@ -13,10 +13,17 @@ from kpdl_anomaly.rule_model import train_rule_model
 from kpdl_preprocess.config import resolve_path
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train SPEC 5 token/rule artifacts.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="SPEC 3 model directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--output-dir", default=None, help="Override rule artifact directory.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Limit train feature rows for smoke tests.")
@@ -48,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_rules(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     limit_rows: int | None = None,

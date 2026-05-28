@@ -1,7 +1,7 @@
 # Runtime dependencies for the KPDL anomaly detection pipeline.
 #
-# Install from the repository root with:
-#   python -m pip install -r src/requirements.txt
+# Install from the src directory with:
+#   python -m pip install -r requirements.txt
 
 # Numeric arrays and feature processing.
 numpy>=1.24
@@ -9,7 +9,7 @@ numpy>=1.24
 # Video/image IO, frame preprocessing, heatmap rendering, and MP4 export.
 opencv-python-headless>=4.8
 
-# YAML configuration files in src/configs/.
+# YAML configuration files in configs/.
 PyYAML>=6.0
 
 # Per-cell MiniBatchKMeans and StandardScaler models.

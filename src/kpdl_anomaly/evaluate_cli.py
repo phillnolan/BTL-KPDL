@@ -10,10 +10,17 @@ from .config import load_anomaly_config
 from .evaluation import evaluate_results
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate frame-level anomaly metrics for one pipeline result.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--results", default=None, help="Single result directory to evaluate.")
     parser.add_argument("--output-dir", default=None, help="Directory for evaluation artifacts.")
     parser.add_argument(

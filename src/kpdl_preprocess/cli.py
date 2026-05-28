@@ -7,10 +7,17 @@ from pathlib import Path
 from .pipeline import run_preprocess
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run preprocessing for the anomaly detection pipeline.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative dataset paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed_smoke.")
     parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
     parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")

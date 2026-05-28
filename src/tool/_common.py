@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = SRC_ROOT.parent
+PROJECT_ROOT = SRC_ROOT
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -15,7 +15,11 @@ from kpdl_preprocess.pipeline import run_preprocess
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--project-root", default=str(PROJECT_ROOT), help="Project root for resolving dataset paths.")
+    parser.add_argument(
+        "--project-root",
+        default=str(PROJECT_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed.")
     parser.add_argument("--split", choices=["train", "test"], default=None, help="Process only one split.")
     parser.add_argument("--limit-videos", type=int, default=None, help="Limit videos/sequences per split for smoke tests.")

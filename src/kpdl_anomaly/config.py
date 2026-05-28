@@ -9,6 +9,9 @@ from kpdl_preprocess.config import ConfigError, copy_config, get_nested, load_co
 from .schema import DEFAULT_FEATURE_COLUMNS
 
 
+SRC_ROOT = Path(__file__).resolve().parents[1]
+
+
 @dataclass(frozen=True)
 class RulesConfig:
     enabled: bool
@@ -67,7 +70,7 @@ class AnomalyConfig:
 
 def load_anomaly_config(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_root: str | Path | None = None,
     result_root: str | Path | None = None,
     clusters_per_cell: int | None = None,
@@ -93,7 +96,7 @@ def load_anomaly_config(
 
     rules = raw.setdefault("rules", {})
     rules.setdefault("enabled", False)
-    rules.setdefault("output_root", "src/outputs/rules")
+    rules.setdefault("output_root", "outputs/rules")
     rules.setdefault("model_dir", None)
     rules.setdefault("algorithm", "bounded_apriori")
     rules.setdefault("min_support", 0.01)
@@ -123,9 +126,9 @@ def load_anomaly_config(
     scoring.setdefault("min_consecutive_alerts", 3)
 
     output = raw.setdefault("output", {})
-    output.setdefault("root", "src/outputs/preprocessed")
-    output.setdefault("model_root", "src/outputs/models")
-    output.setdefault("result_root", "src/outputs/results")
+    output.setdefault("root", "outputs/preprocessed")
+    output.setdefault("model_root", "outputs/models")
+    output.setdefault("result_root", "outputs/results")
     if model_root is not None:
         output["model_root"] = str(model_root)
     if result_root is not None:

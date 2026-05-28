@@ -16,10 +16,17 @@ from kpdl_anomaly.explanations import RuleEvidenceResult, write_rule_evidence_in
 from kpdl_anomaly.io import write_json
 
 
+SRC_ROOT = Path(__file__).resolve().parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build SPEC 9 cluster profiles and alert casebook artifacts.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
-    parser.add_argument("--project-root", default=".", help="Project root. Relative paths are resolved here.")
+    parser.add_argument(
+        "--project-root",
+        default=str(SRC_ROOT),
+        help="Runtime root for resolving dataset/output paths. Defaults to the src directory.",
+    )
     parser.add_argument("--model", default=None, help="Model artifact directory. Defaults to output.model_root/dataset.")
     parser.add_argument("--rules", default=None, help="Rule artifact directory. Defaults to rules.output_root/dataset.")
     parser.add_argument("--results", default=None, help="Result artifact directory. Defaults to output.result_root/dataset.")
@@ -72,12 +79,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_explain(
     config_path: str | Path,
-    project_root: str | Path = ".",
+    project_root: str | Path = SRC_ROOT,
     model_dir: str | Path | None = None,
     rules_dir: str | Path | None = None,
     result_dir: str | Path | None = None,
     visualizations_dir: str | Path | None = None,
-    output_dir: str | Path = "src/outputs/analysis/default",
+    output_dir: str | Path = "outputs/analysis/default",
     top_alerts: int | None = None,
     top_frames: int | None = None,
     video_id: str | None = None,
@@ -164,7 +171,7 @@ def run_explain(
 
 def _default_visualization_dir(config: Any) -> Path:
     raw = config.raw.setdefault("visualization", {})
-    output_root = str(raw.setdefault("output_root", "src/outputs/visualizations"))
+    output_root = str(raw.setdefault("output_root", "outputs/visualizations"))
     return resolve_path(output_root, config.project_root) / config.dataset
 
 
