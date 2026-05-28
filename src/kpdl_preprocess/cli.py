@@ -8,7 +8,7 @@ from .pipeline import run_preprocess
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run SPEC 1 preprocessing for UCSD/CUHK Avenue.")
+    parser = argparse.ArgumentParser(description="Run preprocessing for the anomaly detection pipeline.")
     parser.add_argument("--config", required=True, help="Path to a YAML config file.")
     parser.add_argument("--project-root", default=".", help="Project root. Relative dataset paths are resolved here.")
     parser.add_argument("--output-root", default=None, help="Override output root, for example outputs/preprocessed_smoke.")
@@ -21,7 +21,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=250,
         help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
     )
-    parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
     return parser
 
 
@@ -35,7 +34,6 @@ def main(argv: list[str] | None = None) -> int:
         limit_videos=args.limit_videos,
         limit_frames=args.limit_frames,
         progress_every=args.progress_every,
-        export_arff=args.export_arff,
     )
     print(json.dumps(_public_stats(stats), indent=2))
     return 0
@@ -46,5 +44,4 @@ def _public_stats(stats: dict) -> dict:
         "dataset": stats.get("dataset"),
         "output_dir": stats.get("output_dir"),
         "splits": stats.get("splits"),
-        "arff_outputs": stats.get("arff_outputs", []),
     }

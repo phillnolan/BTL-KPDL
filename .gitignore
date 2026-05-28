@@ -10,6 +10,9 @@
 # External reference papers kept outside project docs
 /*.pdf
 
+# Generated report builds kept outside the runtime pipeline
+/latex/
+
 # Python runtime/cache files
 __pycache__/
 *.py[cod]

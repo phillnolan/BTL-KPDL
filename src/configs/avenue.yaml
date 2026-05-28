@@ -32,7 +32,6 @@ features:
 
 output:
   root: "src/outputs/preprocessed"
-  weka_root: "src/outputs/weka"
 
 rules:
   enabled: true

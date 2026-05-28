@@ -7,7 +7,6 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .arff import convert_csv_to_arff
 from .config import get_nested, load_config, resolve_path
 from .datasets import scan_dataset
 from .features import extract_cube_features
@@ -26,7 +25,6 @@ def run_preprocess(
     limit_videos: int | None = None,
     limit_frames: int | None = None,
     progress_every: int | None = None,
-    export_arff: bool = False,
 ) -> dict:
     config = load_config(config_path)
     project_root = Path(project_root).resolve()
@@ -53,8 +51,6 @@ def run_preprocess(
     active_splits = sorted({source.split for source in sources} or ({split} if split else {"train", "test"}))
 
     stats = _new_stats(dataset, grid_payload, config_path, active_splits, direction_bins)
-    feature_paths: dict[str, Path] = {}
-
     with (output_base / "frames_manifest.csv").open("w", newline="", encoding="utf-8") as frames_file, (
         output_base / "videos_manifest.csv"
     ).open("w", newline="", encoding="utf-8") as videos_file:
@@ -69,7 +65,6 @@ def run_preprocess(
             columns = feature_columns(direction_bins)
             for split_name in active_splits:
                 feature_path = output_base / f"features_{split_name}.csv"
-                feature_paths[split_name] = feature_path
                 handle = feature_path.open("w", newline="", encoding="utf-8")
                 feature_files[split_name] = handle
                 writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
@@ -104,18 +99,6 @@ def run_preprocess(
     stats_path = output_base / "preprocess_stats.json"
     with stats_path.open("w", encoding="utf-8") as handle:
         json.dump(stats, handle, indent=2)
-
-    arff_paths: list[str] = []
-    if export_arff:
-        weka_root_value = get_nested(config, "output", "weka_root", default="src/outputs/weka")
-        weka_root = ensure_dir(resolve_path(weka_root_value, project_root))
-        for split_name, feature_path in feature_paths.items():
-            arff_path = weka_root / f"{dataset}_features_{split_name}.arff"
-            convert_csv_to_arff(feature_path, arff_path, relation=f"{dataset}_features_{split_name}")
-            arff_paths.append(str(arff_path))
-        stats["arff_outputs"] = arff_paths
-        with stats_path.open("w", encoding="utf-8") as handle:
-            json.dump(stats, handle, indent=2)
 
     return stats
 

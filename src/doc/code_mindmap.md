@@ -29,10 +29,6 @@ mindmap
         tính ROC AUC PR AUC EER và summary
       explain.py
         tạo cluster profile rule evidence và casebook
-      report.py
-        tạo artifact sẵn sàng đưa vào LaTeX
-      csv_to_arff.py
-        chuyển CSV feature sang WEKA ARFF
     Package tiền xử lý
       config
         load và validate YAML
@@ -52,11 +48,9 @@ mindmap
         frame diff và Farneback motion
       pipeline
         điều phối toàn bộ tiền xử lý
-        ghi feature manifest stats ARFF
+        ghi feature manifest stats
       schema
         hợp đồng cột CSV
-      arff
-        chuyển CSV sang ARFF
       utils
         path natural sort frame id boolean config
     Package phát hiện bất thường
@@ -84,13 +78,11 @@ mindmap
         ghi markdown định tính
       evaluation evaluate_cli
         label từ mask hoặc interval UCSD
-        metric và so sánh kết quả
+        metric kiểm tra một kết quả
       explanations cluster_profiles casebook
         giải thích ngôn ngữ dễ hiểu
         profile normal pattern
         case đại diện
-      reporting
-        bảng section figure manifest cho report
       io schema feature_selection
         tiện ích dùng chung cho file và row
     Config và runtime
@@ -119,7 +111,6 @@ flowchart TD
     C --> H["features.extract_cube_features"]
     C --> I["features_train.csv / features_test.csv"]
     C --> J["frames_manifest.csv / videos_manifest.csv / preprocess_stats.json"]
-    C --> K["arff.convert_csv_to_arff"]
 
     L["src/train.py"] --> M["kpdl_anomaly.train.run_train"]
     M --> N["io.load_features_by_cell"]
@@ -155,9 +146,6 @@ flowchart TD
     AQ["src/explain.py"] --> AR["cluster_profiles.generate_cluster_profiles"]
     AQ --> AS["explanations.write_rule_evidence_index"]
     AQ --> AT["casebook.generate_casebook"]
-
-    AU["src/report.py"] --> AV["reporting.generate_report_artifacts"]
-    AV --> AW["Bảng section figure manifest cho LaTeX"]
 ```
 
 ## 3. File CLI Và Wrapper
@@ -181,11 +169,7 @@ mindmap
     evaluate.py
       wrapper rất mỏng
       gọi kpdl_anomaly.evaluate_cli.main
-      metric đánh giá và so sánh result
-    csv_to_arff.py
-      wrapper rất mỏng
-      gọi kpdl_preprocess.arff_cli.main
-      export WEKA một lần
+      metric đánh giá cho một result
     rules.py
       CLI đầy đủ
       override threshold rule
@@ -199,9 +183,6 @@ mindmap
       CLI đầy đủ
       kết hợp cluster profile rule evidence casebook
       có mode chỉ ghi cluster profile
-    report.py
-      CLI đầy đủ
-      đóng gói analysis thành file sẵn dùng cho LaTeX
     tool
       _common.py
         option tiền xử lý dùng chung theo dataset
@@ -219,11 +200,9 @@ mindmap
 | `src/train.py` | Wrapper thực thi tối giản cho train model. | `main` import từ `kpdl_anomaly.train` | CLI args | Artifact model dưới model root đã cấu hình |
 | `src/test.py` | Wrapper thực thi tối giản cho scoring. | `main` import từ `kpdl_anomaly.test` | CLI args | Artifact kết quả dưới result root đã cấu hình |
 | `src/evaluate.py` | Wrapper thực thi tối giản cho metric. | `main` import từ `kpdl_anomaly.evaluate_cli` | CLI args | Artifact evaluation |
-| `src/csv_to_arff.py` | Wrapper thực thi tối giản để chuyển CSV sang ARFF. | `main` import từ `kpdl_preprocess.arff_cli` | Đường dẫn CSV và ARFF | File ARFF |
 | `src/rules.py` | CLI khai phá luật có hỗ trợ override tham số. | `build_parser`, `main`, `run_rules`, `_with_overrides`, `_public_summary` | Config, model dir, override support/confidence/lift, giới hạn row | `rules.json`, `itemsets.json`, `token_bins.json`, summary JSON |
 | `src/visualize.py` | CLI visualization cho top frame, alert peak và overlay theo video/khoảng frame. | `build_parser`, `main`, `_public_summary` | Config, result dir, output dir, tham số chọn frame | Ảnh, MP4 overlay, index và stats |
 | `src/explain.py` | CLI analysis nối cluster profile, rule evidence và alert casebook. | `build_parser`, `main`, `run_explain`, `_cluster_only_manifest`, `_public_summary` | Config, model/rule/result/visualization dir | `cluster_profiles`, `rule_evidence_index`, `alert_casebook`, analysis manifest |
-| `src/report.py` | CLI sinh artifact LaTeX cho báo cáo. | `build_parser`, `main`, `_public_summary` | Config, analysis/results/visualization/evaluation dir | Fragment LaTeX sinh ra, figure được copy, report manifest |
 | `src/tool/_common.py` | Helper dùng chung cho script preprocess theo dataset. | `add_common_args`, `run_dataset`, `_summary` | CLI args đã parse và config path | Summary của lần chạy preprocess |
 | `src/tool/preprocess_ucsd.py` | CLI tiện dụng cho tiền xử lý UCSD Ped2. | `build_parser`, `main` | Shared preprocess args | Artifact tiền xử lý UCSD Ped2 |
 | `src/tool/preprocess_avenue.py` | CLI tiện dụng cho tiền xử lý CUHK Avenue. | `build_parser`, `main` | Shared preprocess args | Artifact tiền xử lý Avenue |
@@ -282,14 +261,7 @@ mindmap
       tạo grid
       trượt cube buffer
       ghi CSV manifest stats
-      export ARFF tùy chọn
       log tiến độ
-    arff.py
-      convert_csv_to_arff
-      suy ra giá trị nominal
-      quote giá trị ARFF
-    arff_cli.py
-      CLI chuyển đổi nhỏ
     cli.py
       CLI tiền xử lý
       summary JSON công khai
@@ -312,10 +284,8 @@ mindmap
 | `src/kpdl_preprocess/records.py` | Dataclass dùng chung trong tiền xử lý. | `VideoSource`, `FrameRecord`, `CellRecord.width`, `CellRecord.height` | Giữ metadata dataset/split/video, frame grayscale đã tiền xử lý và hình học cell. |
 | `src/kpdl_preprocess/schema.py` | Hợp đồng schema CSV cho output tiền xử lý. | `feature_columns` | Định nghĩa `FRAME_MANIFEST_COLUMNS`, `VIDEO_MANIFEST_COLUMNS`, cột feature cơ bản và mở rộng `direction_hist_*`. |
 | `src/kpdl_preprocess/features.py` | Chuyển cube không gian-thời gian thành feature row theo cell. | `extract_cube_features`, `_farneback_motion`, `_cell_direction_histogram`, `_safe_mean`, `_safe_std` | Trích xuất foreground ratio, motion mean/std/density, direction histogram, brightness mean/delta; hỗ trợ `frame_diff` và `farneback`. |
-| `src/kpdl_preprocess/pipeline.py` | Điều phối chính của bước tiền xử lý. | `run_preprocess`, `_process_source`, `_frame_manifest_row`, `_limit_sources_per_split`, `_new_stats`, `_empty_split_stats`, `_finalize_stats`, `_expected_frame_count` | Ghi `grid.json`, `features_train.csv`, `features_test.csv`, manifest, stats và ARFF tùy chọn; dùng deque làm cube buffer. |
-| `src/kpdl_preprocess/arff.py` | Chuyển feature CSV sang ARFF tương thích WEKA. | `convert_csv_to_arff`, `_collect_nominal_values`, `_format_value`, `_quote_arff`, `_safe_relation_name` | Xem cột metadata là nominal/string-ish và cột feature số là numeric. |
-| `src/kpdl_preprocess/arff_cli.py` | Lớp CLI quanh chức năng chuyển ARFF. | `build_parser`, `main` | Parser mỏng cho input CSV, output ARFF và relation name tùy chọn. |
-| `src/kpdl_preprocess/cli.py` | CLI tiền xử lý tổng quát. | `build_parser`, `main`, `_public_stats` | Expose config, project root, split, limit, progress logging và ARFF export. |
+| `src/kpdl_preprocess/pipeline.py` | Điều phối chính của bước tiền xử lý. | `run_preprocess`, `_process_source`, `_frame_manifest_row`, `_limit_sources_per_split`, `_new_stats`, `_empty_split_stats`, `_finalize_stats`, `_expected_frame_count` | Ghi `grid.json`, `features_train.csv`, `features_test.csv`, manifest và stats; dùng deque làm cube buffer. |
+| `src/kpdl_preprocess/cli.py` | CLI tiền xử lý tổng quát. | `build_parser`, `main`, `_public_stats` | Expose config, project root, split, limit và progress logging. |
 | `src/kpdl_preprocess/utils.py` | Helper nhỏ dùng chung. | `ensure_dir`, `natural_key`, `sorted_natural`, `stem_to_frame_id`, `bool_config` | Dùng khi quét dataset, tạo output, lấy frame id và ép kiểu config. |
 
 ## 5. Mindmap Package Phát Hiện Bất Thường
@@ -393,8 +363,7 @@ mindmap
         FrameScoreRow LabelResult GroundTruthState
         mask và interval UCSD
         ROC AUC PR AUC EER
-        so sánh result
-    giải thích và báo cáo
+    giải thích
       cluster_profiles.py
         mô tả cluster bình thường
       explanations.py
@@ -403,11 +372,6 @@ mindmap
       casebook.py
         chọn case đại diện
         markdown casebook
-      reporting.py
-        bảng LaTeX
-        section report
-        copy figure
-        manifest
 ```
 
 ### Ghi Chú Từng File
@@ -433,12 +397,11 @@ mindmap
 | `src/kpdl_anomaly/frames.py` | Nạp lại frame đã tiền xử lý để visualization. | `LoadedFrame`, `FrameBatch`, `load_preprocessed_frames`, `ensure_preprocessed_frame_source` | Dùng scanner/reader của preprocessing để lấy đúng các frame được yêu cầu từ split test. |
 | `src/kpdl_anomaly/visualization.py` | Renderer heatmap và video overlay. | `GridCell`, `GridSpec`, `FrameScore`, `FrameSelection`, `VisualizationSettings`, `run_visualization`, `load_grid`, `load_frame_scores`, `select_top_frames`, `select_alert_peaks`, `select_video_range`, `render_overlay` | Chuyển cell score thành heatmap, blend lên frame, vẽ top cell/grid, ghi PNG, MP4 overlay, index, stats và qualitative report. |
 | `src/kpdl_anomaly/qualitative.py` | Ghi summary visualization ở dạng dễ đọc. | `write_qualitative_report`, `_append_top_frames`, `_append_alerts`, `_append_videos`, `_markdown_link` | Sinh markdown liệt kê artifact top frame, ảnh alert và video đã tạo. |
-| `src/kpdl_anomaly/evaluate_cli.py` | CLI cho evaluation và comparison. | `build_parser`, `main`, `_public_summary` | Hỗ trợ mode tính metric cho một result và mode so sánh baseline/candidate. |
-| `src/kpdl_anomaly/evaluation.py` | Engine đánh giá frame-level. | `FrameScoreRow`, `LabelResult`, `GroundTruthState`, `evaluate_results`, `compare_result_sets`, `_load_ground_truth_state`, `_binary_metrics`, `_threshold_metrics` | Load interval `.m` của UCSD và/hoặc pixel mask, gán label cho frame đã score, tính ROC-AUC, PR-AUC, EER, stats threshold và markdown summary. |
+| `src/kpdl_anomaly/evaluate_cli.py` | CLI cho evaluation một result. | `build_parser`, `main`, `_public_summary` | Tính metric frame-level từ `frame_scores.csv` và ground truth UCSD. |
+| `src/kpdl_anomaly/evaluation.py` | Engine đánh giá frame-level. | `FrameScoreRow`, `LabelResult`, `GroundTruthState`, `evaluate_results`, `_load_ground_truth_state`, `_binary_metrics`, `_threshold_metrics` | Load interval `.m` của UCSD và/hoặc pixel mask, gán label cho frame đã score, tính ROC-AUC, PR-AUC, EER, stats threshold và markdown summary. |
 | `src/kpdl_anomaly/cluster_profiles.py` | Chuyển cluster đã train thành profile normal pattern dễ diễn giải. | `TokenContext`, `generate_cluster_profiles`, `write_cluster_profiles_markdown`, `_inverse_centers`, `_cluster_record`, `_cluster_summary` | Inverse-transform centroid, gắn token context/support và mô tả cluster theo motion/density/brightness/cell. |
 | `src/kpdl_anomaly/explanations.py` | Tạo rule evidence và explanation record theo case. | `RuleEvidenceResult`, `write_rule_evidence_index`, `load_cluster_profile_index`, `load_frame_scores`, `load_alerts`, `load_cell_scores_for_frames`, `build_explanation_record` | Join frame/cell score, cluster profile, rare itemset, rule bị vi phạm và câu chữ dễ hiểu. |
 | `src/kpdl_anomaly/casebook.py` | Chọn case bất thường đại diện và ghi tài liệu casebook. | `generate_casebook`, `select_cases`, `write_casebook_markdown`, `_case_from_frame`, `_peak_frame_for_alert`, `_overlay_for_case`, `_analysis_manifest` | Chọn alert peak hoặc frame có score cao, link overlay, lưu placeholder review và evidence. |
-| `src/kpdl_anomaly/reporting.py` | Sinh nội dung LaTeX sẵn dùng từ artifact analysis. | `ReportOptions`, `generate_report_artifacts`, `_resolve_sources`, `_copy_case_figures`, `_write_tables`, `_write_sections`, `_manifest` | Ghi bảng pipeline/config/metrics/cluster/rule/casebook, section report, figure copy và `report_artifacts_manifest.json`. |
 
 ## 6. File Config Và Runtime
 
@@ -454,7 +417,7 @@ mindmap
       ucsd_ped1.yaml
         dataset ucsd_ped1
         input frame sequence
-        root preprocess và ARFF
+        root preprocess
       ucsd_ped2.yaml
         config chính gần production
         input frame sequence
@@ -475,7 +438,7 @@ mindmap
 
 | File | Vai trò | Section chính | Chi tiết quan trọng |
 |---|---|---|---|
-| `src/configs/avenue.yaml` | Cấu hình dataset CUHK Avenue. | `data`, `video`, `grid`, `cube`, `features`, `output` | Dùng input dạng video cho Avenue; chủ yếu phục vụ preprocessing và ARFF export, không phải artifact model chính trong báo cáo. |
+| `src/configs/avenue.yaml` | Cấu hình dataset CUHK Avenue. | `data`, `video`, `grid`, `cube`, `features`, `output` | Dùng input dạng video cho Avenue; hữu ích khi mở rộng pipeline từ UCSD sang nguồn video. |
 | `src/configs/ucsd_ped1.yaml` | Cấu hình dataset UCSD Ped1. | `data`, `video`, `grid`, `cube`, `features`, `output` | Tương tự setup preprocessing của Ped2 cho frame sequence, hữu ích khi mở rộng validation. |
 | `src/configs/ucsd_ped2.yaml` | Cấu hình end-to-end chính. | `data`, `video`, `grid`, `cube`, `features`, `output`, `model`, `scoring`, `rules`, `visualization`, `evaluation` | Điều khiển artifact MVP chính: feature frame-diff, MiniBatchKMeans, scoring có trọng số, rule scoring, heatmap và evaluation. |
 | `src/configs/ucsd_ped2_optical_flow.yaml` | Cấu hình optical-flow thay thế cho Ped2. | Giống Ped2 nhưng có thêm thiết lập Farneback | Bật feature/token có hướng mà không thay thế config frame-diff chính. |
@@ -492,7 +455,6 @@ flowchart LR
       PG["grid.py"]
       PF["features.py"]
       PP["pipeline.py"]
-      PA["arff.py"]
       PS["schema.py"]
       PU["utils.py"]
       PREC["records.py"]
@@ -516,7 +478,6 @@ flowchart LR
       ACP["cluster_profiles.py"]
       AX["explanations.py"]
       ACK["casebook.py"]
-      AREP["reporting.py"]
     end
 
     PP --> PC
@@ -524,7 +485,6 @@ flowchart LR
     PP --> PR
     PP --> PG
     PP --> PF
-    PP --> PA
     PD --> PREC
     PR --> PREC
     PG --> PREC
@@ -552,7 +512,6 @@ flowchart LR
     ACP --> ATO
     AX --> AI
     ACK --> AX
-    AREP --> AI
 ```
 
 ## 8. Thứ Tự Đọc Cho Người Mới Vào Dự Án
@@ -564,7 +523,7 @@ flowchart LR
 5. Theo luồng train model: `src/train.py` -> `src/kpdl_anomaly/train.py` -> `src/kpdl_anomaly/modeling.py`.
 6. Theo luồng rule: `src/rules.py` -> `src/kpdl_anomaly/rule_model.py` -> `src/kpdl_anomaly/tokenization.py` -> `src/kpdl_anomaly/association.py`.
 7. Theo luồng scoring: `src/test.py` -> `src/kpdl_anomaly/test.py` -> `src/kpdl_anomaly/scoring.py` -> `src/kpdl_anomaly/alerts.py`.
-8. Theo luồng output: `src/visualize.py`, `src/evaluate.py`, `src/explain.py`, `src/report.py`.
+8. Theo luồng output: `src/visualize.py`, `src/evaluate.py`, `src/explain.py`.
 
 ## 9. Mô Hình Tư Duy Nhanh
 
@@ -601,6 +560,5 @@ mindmap
       ảnh heatmap
       metrics
       explanations
-      báo cáo LaTeX
+      casebook markdown/json
 ```
-

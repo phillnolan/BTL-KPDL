@@ -26,7 +26,6 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         default=250,
         help="Print progress every N frames while processing videos/sequences. Use 0 to disable.",
     )
-    parser.add_argument("--export-arff", action="store_true", help="Also export WEKA ARFF files from feature CSV outputs.")
 
 
 def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
@@ -38,7 +37,6 @@ def run_dataset(args: argparse.Namespace, config_path: Path) -> int:
         limit_videos=args.limit_videos,
         limit_frames=args.limit_frames,
         progress_every=args.progress_every,
-        export_arff=args.export_arff,
     )
     print(json.dumps(_summary(stats), indent=2, ensure_ascii=False))
     return 0
@@ -52,5 +50,4 @@ def _summary(stats: dict) -> dict:
         "schema_version": schema.get("version"),
         "feature_columns": schema.get("feature_columns"),
         "splits": stats.get("splits"),
-        "arff_outputs": stats.get("arff_outputs", []),
     }

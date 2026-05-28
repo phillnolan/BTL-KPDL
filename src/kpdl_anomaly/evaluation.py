@@ -120,64 +120,6 @@ def evaluate_results(
     return summary
 
 
-def compare_result_sets(
-    config: AnomalyConfig,
-    baseline_result_dir: str | Path,
-    candidate_result_dir: str | Path,
-    output_dir: str | Path | None = None,
-    score_columns: list[str] | None = None,
-    label_source: str | None = None,
-    baseline_name: str = "baseline",
-    candidate_name: str = "candidate",
-) -> dict[str, Any]:
-    output_path = ensure_dir(output_dir or (_default_evaluation_output_dir(config) / "comparison"))
-    baseline_output = output_path / _safe_name(baseline_name)
-    candidate_output = output_path / _safe_name(candidate_name)
-
-    baseline = evaluate_results(
-        config,
-        result_dir=baseline_result_dir,
-        output_dir=baseline_output,
-        score_columns=score_columns,
-        label_source=label_source,
-    )
-    candidate = evaluate_results(
-        config,
-        result_dir=candidate_result_dir,
-        output_dir=candidate_output,
-        score_columns=score_columns,
-        label_source=label_source,
-    )
-
-    deltas: dict[str, dict[str, float | None]] = {}
-    common_scores = [column for column in baseline["score_columns"] if column in set(candidate["score_columns"])]
-    for column in common_scores:
-        base_metrics = baseline["metrics"][column]
-        candidate_metrics = candidate["metrics"][column]
-        deltas[column] = {
-            "roc_auc_delta": _delta(candidate_metrics, base_metrics, "roc_auc"),
-            "pr_auc_delta": _delta(candidate_metrics, base_metrics, "pr_auc"),
-            "eer_delta": _delta(candidate_metrics, base_metrics, "eer"),
-            "eer_improvement": _delta(base_metrics, candidate_metrics, "eer"),
-            "best_f1_delta": _delta(candidate_metrics, base_metrics, "best_f1"),
-        }
-
-    comparison = {
-        "schema_version": EVALUATION_SCHEMA_VERSION,
-        "dataset": config.dataset,
-        "split": "test",
-        "compared_at": datetime.now(timezone.utc).isoformat(),
-        "output_dir": str(output_path),
-        "baseline": _compact_eval_summary(baseline_name, baseline),
-        "candidate": _compact_eval_summary(candidate_name, candidate),
-        "deltas": deltas,
-        "warnings": baseline.get("warnings", []) + candidate.get("warnings", []),
-    }
-    write_json(output_path / "comparison.json", comparison)
-    _write_comparison_summary(output_path / "comparison_summary.md", comparison)
-    return comparison
-
-
 def _default_evaluation_output_dir(config: AnomalyConfig) -> Path:
     root = get_nested(config.raw, "evaluation", "output_root", default="src/outputs/evaluation")
     return resolve_path(str(root), config.project_root) / config.dataset
@@ -555,65 +497,6 @@ def _write_metrics_summary(path: Path, summary: dict[str, Any]) -> None:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in summary["warnings"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _write_comparison_summary(path: Path, comparison: dict[str, Any]) -> None:
-    baseline = comparison["baseline"]
-    candidate = comparison["candidate"]
-    lines = [
-        f"# SPEC 6 Comparison - {comparison['dataset']}",
-        "",
-        f"- Baseline: `{baseline['name']}` from `{baseline['result_dir']}`",
-        f"- Candidate: `{candidate['name']}` from `{candidate['result_dir']}`",
-        "",
-        "| score | baseline ROC-AUC | candidate ROC-AUC | ROC delta | baseline EER | candidate EER | EER improvement |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for column, delta in comparison["deltas"].items():
-        base_metrics = baseline["metrics"][column]
-        candidate_metrics = candidate["metrics"][column]
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    column,
-                    _md_float(base_metrics["roc_auc"]),
-                    _md_float(candidate_metrics["roc_auc"]),
-                    _md_float(delta["roc_auc_delta"]),
-                    _md_float(base_metrics["eer"]),
-                    _md_float(candidate_metrics["eer"]),
-                    _md_float(delta["eer_improvement"]),
-                ]
-            )
-            + " |"
-        )
-    if comparison["warnings"]:
-        lines.extend(["", "## Warnings", ""])
-        lines.extend(f"- {warning}" for warning in comparison["warnings"])
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _compact_eval_summary(name: str, summary: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "name": name,
-        "result_dir": summary["result_dir"],
-        "output_dir": summary["output_dir"],
-        "frames": summary["frames"],
-        "metrics": summary["metrics"],
-    }
-
-
-def _delta(candidate: dict[str, Any], baseline: dict[str, Any], key: str) -> float | None:
-    candidate_value = candidate.get(key)
-    baseline_value = baseline.get(key)
-    if candidate_value is None or baseline_value is None:
-        return None
-    return float(candidate_value) - float(baseline_value)
-
-
-def _safe_name(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
-    return cleaned or "result"
 
 
 def _md_float(value: Any) -> str:

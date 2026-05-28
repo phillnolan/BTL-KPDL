@@ -2,7 +2,7 @@
 
 ## 1. Mục tiêu
 
-Tài liệu này mô tả bước triển khai tiếp theo sau khi giai đoạn tiền xử lý đã sinh feature CSV/ARFF. Mục tiêu của SPEC 3 là chuyển từ dữ liệu đặc trưng đã chuẩn hóa sang một pipeline Python có thể chạy lặp lại để:
+Tài liệu này mô tả bước triển khai tiếp theo sau khi giai đoạn tiền xử lý đã sinh feature CSV. Mục tiêu của SPEC 3 là chuyển từ dữ liệu đặc trưng đã chuẩn hóa sang một pipeline Python có thể chạy lặp lại để:
 
 - huấn luyện mô hình phân cụm hành vi bình thường theo từng cell;
 - tính khoảng cách của mỗi feature row tới cụm bình thường gần nhất;
@@ -11,13 +11,11 @@ Tài liệu này mô tả bước triển khai tiếp theo sau khi giai đoạn 
 - làm mượt score theo thời gian;
 - xuất kết quả phục vụ bước heatmap, alert, token/rule và đánh giá sau này.
 
-SPEC 3 ưu tiên UCSD Ped2 vì dữ liệu nhỏ hơn, đã có đầy đủ `features_train.csv`, `features_test.csv`, ARFF và `preprocess_stats.json`.
+SPEC 3 ưu tiên UCSD Ped2 vì dữ liệu nhỏ hơn, đã có đầy đủ `features_train.csv`, `features_test.csv` và `preprocess_stats.json`.
 
 ## 2. Liên hệ với PRD và các spec trước
 
-Theo PRD, giai đoạn sau tiền xử lý cần học normal pattern riêng theo vùng camera, sau đó dùng độ lệch so với normal pattern để tính bất thường. SPEC 1 đã tạo feature đầu vào. SPEC 2 mô tả hướng dùng WEKA để thử nghiệm, phân tích và đối chiếu. SPEC 3 triển khai nhánh Python tự động hóa để có thể train, test, lưu model, tính score và chạy lại bằng config.
-
-SPEC 3 không thay thế SPEC 2. Kết quả WEKA như `src/doc/Kmean.md` có thể dùng để chọn cấu hình khởi đầu, ví dụ `K=5` cho baseline behavior-only trên UCSD Ped2.
+Theo PRD, giai đoạn sau tiền xử lý cần học normal pattern riêng theo vùng camera, sau đó dùng độ lệch so với normal pattern để tính bất thường. SPEC 1 đã tạo feature đầu vào. SPEC 3 triển khai nhánh Python tự động hóa để có thể train, test, lưu model, tính score và chạy lại bằng config.
 
 ## 3. Trạng thái dữ liệu đầu vào hiện có
 
